@@ -1,0 +1,29 @@
+{
+  "_note": "All money in INR. These are STARTING ASSUMPTIONS - replace them with your real supplier quotes. See docs/costing.md.",
+  "resin_per_litre": 2200,
+  "resin_waste_factor": 1.25,
+  "support_and_raft_ml_per_piece": 1.0,
+  "labour_per_hour": 200,
+  "machine_cost_per_print_hour": 25,
+  "electricity_and_consumables_per_piece": 5,
+  "gst_percent": 18,
+
+  "medallion": {
+    "finish_per_piece": { "none": 0, "antique brass paint": 12, "cold cast brass": 35 },
+    "packaging_per_piece": { "none": 0, "velvet pouch": 15, "printed box": 30 },
+    "design_setup_fee": 1500,
+    "coins_per_print_plate": 20,
+    "print_hours_per_plate": 1.2,
+    "labour_minutes_per_piece": 3,
+    "target_margin_percent": 55
+  },
+
+  "drawing": {
+    "paint_per_piece": { "unpainted": 0, "hand painted": 60 },
+    "packaging_per_piece": { "none": 0, "display box": 90 },
+    "print_hours_per_cm_height": 0.25,
+    "labour_minutes": { "unpainted": 20, "hand painted": 75 },
+    "design_minutes": 15,
+    "target_margin_percent": 60
+  }
+}

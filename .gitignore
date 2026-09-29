@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Customer orders contain personal photos - never commit them.
+orders/
+*.stl
+*.glb
+.env

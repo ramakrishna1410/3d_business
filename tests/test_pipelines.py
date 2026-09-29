@@ -45,8 +45,28 @@ def test_heightmap_mesh_is_closed_with_holes_and_pinches():
 
 
 def test_volume_of_flat_slab():
-    solid = mesh.heightmap_to_mesh(np.full((11, 21), 2.0), None, 1.0)
+    solid = mesh.heightmap_to_mesh(np.full((11, 21), 2.0), None, 1.0, smooth_edges=False)
     assert solid.volume_mm3() == pytest.approx(10 * 20 * 2.0)
+
+
+def test_smoothed_disc_edge_is_round_and_closed():
+    n, r = 201, 90
+    yy, xx = np.mgrid[0:n, 0:n]
+    disc = np.hypot(xx - 100, yy - 100) <= r
+    rough = mesh.heightmap_to_mesh(np.full((n, n), 2.0), disc, 1.0, smooth_edges=False)
+    smooth = mesh.heightmap_to_mesh(np.full((n, n), 2.0), disc, 1.0)
+    assert mesh.is_watertight(smooth)
+
+    def edge_error(m):  # wobble of the silhouette radius around the circle
+        v = m.vertices
+        rr = np.hypot(v[:, 0] - 100, v[:, 1] - 100)
+        ang = ((np.arctan2(v[:, 1] - 100, v[:, 0] - 100) + np.pi) / (2 * np.pi) * 360).astype(int)
+        outer = np.full(361, -1.0)
+        np.maximum.at(outer, ang, rr)
+        return np.std(outer[outer > 0])
+
+    assert edge_error(smooth) < 0.6 * edge_error(rough)   # staircase flattened
+    assert smooth.volume_mm3() == pytest.approx(rough.volume_mm3(), rel=0.01)
 
 
 @pytest.mark.parametrize("layout,hole", [("coin", False), ("coin", True), ("classic", True)])

@@ -73,11 +73,40 @@ def _remove_pinches(cell: np.ndarray) -> np.ndarray:
     return cell
 
 
+def _smooth_outline(vertices: np.ndarray, a: np.ndarray, b: np.ndarray, n: int,
+                    pixel_mm: float, iterations: int = 8) -> None:
+    """Laplacian-smooth the outline loops in x/y (top and bottom together).
+
+    The outline of a pixel mask is a staircase. Each outline vertex is pulled
+    towards the midpoint of its two neighbours along the loop; movement is
+    capped below half a pixel so the neighbouring surface never folds over.
+    """
+    nxt = np.full(n, -1)
+    prv = np.full(n, -1)
+    nxt[a] = b
+    prv[b] = a
+    v = np.flatnonzero((nxt >= 0) & (prv >= 0))
+    if len(v) == 0:
+        return
+    start = vertices[v, :2].copy()
+    xy = vertices[:, :2]
+    for _ in range(iterations):
+        target = 0.5 * xy[v] + 0.25 * (xy[prv[v]] + xy[nxt[v]])
+        xy[v] = target
+    shift = xy[v] - start
+    length = np.linalg.norm(shift, axis=1, keepdims=True)
+    cap = 0.45 * pixel_mm
+    shift = np.where(length > cap, shift * cap / np.maximum(length, 1e-12), shift)
+    vertices[v, :2] = start + shift
+    vertices[v + n, :2] = start + shift
+
+
 def heightmap_to_mesh(
     top: np.ndarray,
     mask: np.ndarray | None = None,
     pixel_mm: float = 0.15,
     bottom: np.ndarray | float = 0.0,
+    smooth_edges: bool = True,
 ) -> Mesh:
     """Build a closed solid from a height map.
 
@@ -87,6 +116,8 @@ def heightmap_to_mesh(
     pixel_mm: size of one pixel in mm.
     bottom  : scalar z of a flat underside, or an (H, W) array (e.g. -top for a
               double-sided sculpture). Must be below `top` everywhere in the mask.
+    smooth_edges: round off the pixel "staircase" along the outline (and
+              around holes) so edges print as clean curves.
     """
     top = np.asarray(top, dtype=np.float64)
     h, w = top.shape
@@ -140,6 +171,8 @@ def heightmap_to_mesh(
     rev = e[:, 1] * (n + 1) + e[:, 0]
     boundary = e[~np.isin(fwd, rev)]
     a, b = boundary[:, 0], boundary[:, 1]
+    if smooth_edges:
+        _smooth_outline(vertices, a, b, n, pixel_mm)
     wall = np.vstack([np.column_stack([a, b + n, b]), np.column_stack([a, a + n, b + n])])
 
     faces = np.vstack([top_faces, bot_faces, wall]).astype(np.int64)

@@ -291,7 +291,7 @@ def generate(photo, settings: MedallionSettings, customer: dict | None = None,
     log.append(f"Mesh: {solid.triangle_count:,} triangles, watertight="
                f"{mesh_mod.is_watertight(solid)} ({time.time() - t0:.1f}s)")
 
-    step = max(1, int(round(0.4 / px)))
+    step = max(1, int(round(0.25 / px)))
     small = mesh_mod.heightmap_to_mesh(height[::step, ::step], coin[::step, ::step], px * step)
     render_img = render.render_material(height_fine, px / k, coin_fine, settings.material)
     ext = (height_fine.shape[1] - 1) * px / k

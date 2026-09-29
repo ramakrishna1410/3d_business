@@ -133,3 +133,14 @@ def test_drawing_lineart_mode():
     r = drawing.generate(leaf_sketch(), s, {"name": "Parent"})
     assert r.stl.exists() and r.render.exists()
     assert any("watertight shells=True" in line for line in r.log)
+
+
+def test_lineart_result_does_not_depend_on_print_size():
+    from memory_factory import lineart
+
+    counts = []
+    for size in (50, 150):
+        log = []
+        lineart.build(leaf_sketch(), lineart.LineArtSettings(size_mm=size, pixel_mm=0.3), log)
+        counts.append(log[0])
+    assert counts[0] == counts[1]

@@ -187,6 +187,7 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     px = settings.pixel_mm
 
     preview_solid = None
+    preview_tex = preview_extent = None  # shaded render painted onto flat products
     if settings.mode == "line-art relief":
         from . import lineart
 
@@ -197,6 +198,8 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
         preview_solid = mesh_mod.heightmap_to_mesh(height[::2, ::2], mask[::2, ::2],
                                                    la.pixel_mm * 2)
         render_img = render.render_material(height, la.pixel_mm, mask, "antique brass")
+        preview_tex = render_img
+        preview_extent = ((height.shape[1] - 1) * la.pixel_mm, (height.shape[0] - 1) * la.pixel_mm)
     else:
         img, mask = _prepare(drawing, settings, log)
 
@@ -226,6 +229,9 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     else:
         solid, height, plate, colour, vis = build_relief_plaque(img, mask, settings)
         render_img = render.render_coloured(height, px, colour, plate)
+        preview_solid = mesh_mod.heightmap_to_mesh(height[::2, ::2], plate[::2, ::2], px * 2)
+        preview_tex = render_img
+        preview_extent = ((height.shape[1] - 1) * px, (height.shape[0] - 1) * px)
 
     stl = mesh_mod.write_stl(solid, folder / f"{order_id}_{settings.mode.replace(' ', '_')}.stl")
     log.append(f"Mesh: {solid.triangle_count:,} triangles, watertight shells="
@@ -235,7 +241,8 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     log.append(f"Final size: {size[0]:.0f} x {size[1]:.0f} x {size[2]:.0f} mm")
 
     glb = mesh_mod.write_glb_preview(preview_solid or solid, folder / "preview.glb",
-                                     color=(235, 200, 120))
+                                     color=(235, 200, 120), texture=preview_tex,
+                                     extent_mm=preview_extent, upright=preview_tex is not None)
     render_path = folder / "render.png"
     render_img.save(render_path)
     guide = render.painting_guide(img, mask)

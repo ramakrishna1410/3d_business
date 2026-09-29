@@ -293,9 +293,11 @@ def generate(photo, settings: MedallionSettings, customer: dict | None = None,
 
     step = max(1, int(round(0.4 / px)))
     small = mesh_mod.heightmap_to_mesh(height[::step, ::step], coin[::step, ::step], px * step)
-    glb = mesh_mod.write_glb_preview(small, folder / "preview.glb")
-
     render_img = render.render_material(height_fine, px / k, coin_fine, settings.material)
+    ext = (height_fine.shape[1] - 1) * px / k
+    glb = mesh_mod.write_glb_preview(small, folder / "preview.glb", texture=render_img,
+                                     extent_mm=(ext, ext), upright=True)
+
     render_path = folder / "render.png"
     render_img.save(render_path)
     depth_prev = folder / "relief_heightmap.png"

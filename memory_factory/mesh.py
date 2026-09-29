@@ -180,16 +180,37 @@ def write_stl(mesh: Mesh, path: str | Path, name: str = "memory_factory") -> Pat
     return path
 
 
-def write_glb_preview(mesh: Mesh, path: str | Path, color=(200, 170, 110)) -> Path | None:
-    """Lightweight GLB for the in-browser 3D viewer (needs `trimesh`)."""
+def write_glb_preview(mesh: Mesh, path: str | Path, color=(200, 170, 110),
+                      texture=None, extent_mm=None, upright: bool = False) -> Path | None:
+    """Lightweight GLB for the in-browser 3D viewer (needs `trimesh`).
+
+    texture  : optional PIL image (e.g. the shaded render) painted onto the
+               model as vertex colours, so fine relief detail is visible even
+               under the viewer's flat lighting.
+    extent_mm: (width, height) in mm that the texture image covers; the
+               texture is mapped over the model's x/y from 0 to that size.
+    upright  : True for plaques/coins: stand the piece up facing the viewer
+               instead of lying flat on the floor.
+    """
     try:
         import trimesh
     except ImportError:
         return None
     tm = trimesh.Trimesh(mesh.vertices, mesh.faces, process=False)
-    # Viewer is y-up; our models are z-up.
-    tm.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
-    tm.visual.face_colors = [*color, 255]
+    if texture is not None:
+        tex = np.asarray(texture.convert("RGB"))
+        th, tw = tex.shape[:2]
+        ex, ey = extent_mm or (mesh.vertices[:, 0].max(), mesh.vertices[:, 1].max())
+        col = np.clip(mesh.vertices[:, 0] / max(ex, 1e-9) * (tw - 1), 0, tw - 1).astype(int)
+        row = np.clip((1 - mesh.vertices[:, 1] / max(ey, 1e-9)) * (th - 1), 0, th - 1).astype(int)
+        rgb = tex[row, col]
+        tm.visual.vertex_colors = np.column_stack([rgb, np.full(len(rgb), 255)]).astype(np.uint8)
+    else:
+        tm.visual.face_colors = [*color, 255]
+    if not upright:
+        # Viewer is y-up; our standing models are z-up.
+        tm.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
+    tm.apply_translation(-tm.bounds.mean(axis=0))
     tm.export(path)
     return Path(path)
 

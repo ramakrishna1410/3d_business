@@ -98,13 +98,15 @@ def build(img: Image.Image, s: LineArtSettings, log: list[str]):
     box = (max(0, int((xs.min() - pad) * f)), max(0, int((ys.min() - pad) * f)),
            min(img.width, int((xs.max() + pad) * f)), min(img.height, int((ys.max() + pad) * f)))
     img = img.crop(box)
-    # 2) work directly at the print resolution
-    scale = (s.size_mm / s.pixel_mm) / max(img.size)
+    # 2) analyse at a fixed working resolution (longest side 1000 px) so the
+    #    result does not depend on the print size, then resample at the end.
+    work_px = s.size_mm / 1000.0
+    scale = (s.size_mm / work_px) / max(img.size)
     img = img.resize((max(2, int(img.width * scale)), max(2, int(img.height * scale))),
                      Image.LANCZOS)
     dark, lines, shape, regions, is_figure = analyse(img, s)
     # Smooth the hand-drawn outline so the plaque edge is clean.
-    shape = ndimage.gaussian_filter(shape.astype(float), 0.8 / s.pixel_mm) > 0.5
+    shape = ndimage.gaussian_filter(shape.astype(float), 0.8 / work_px) > 0.5
     regions = np.where(shape, regions, 0)
     n_fig = sum(is_figure.values())
     n_bg = len(is_figure) - n_fig
@@ -112,7 +114,7 @@ def build(img: Image.Image, s: LineArtSettings, log: list[str]):
     if n_fig == 0:
         log.append("No separate figure found - everything is one layer.")
 
-    px = s.pixel_mm
+    px = work_px
     level = np.zeros(regions.shape)
     puff = np.zeros(regions.shape)
     objs = ndimage.find_objects(regions)
@@ -156,4 +158,11 @@ def build(img: Image.Image, s: LineArtSettings, log: list[str]):
     height = s.base_mm + np.clip(height, 0, None)
     solid = ndimage.binary_dilation(shape, iterations=1)
     height = np.where(solid, height, 0.0)
-    return height, solid, img
+    # 3) resample to the requested print resolution
+    th = max(2, int(round(height.shape[0] * work_px / s.pixel_mm)))
+    tw = max(2, int(round(height.shape[1] * work_px / s.pixel_mm)))
+    solid = np.asarray(Image.fromarray(solid.astype(np.float32)).resize((tw, th), Image.BILINEAR)) > 0.5
+    height = np.asarray(Image.fromarray(height.astype(np.float32)).resize((tw, th), Image.BILINEAR),
+                        dtype=np.float64)
+    height = np.where(solid, np.maximum(height, s.base_mm), 0.0)
+    return height, solid, img.resize((tw, th), Image.LANCZOS)

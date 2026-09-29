@@ -23,6 +23,8 @@ tested through Instagram, wedding expos and school tie-ups before renting mall s
                 coin layout (big portrait, names curved on the rim)   3D preview, cost & price
                 → watertight mesh
  kids drawing   find drawing on paper → inflate shape → pencil-line   STL (plaque / figure)
+ or sketch      (line-art: split into areas → raised figure layer
+                over background → rounded areas → pencil grooves)
                 grooves → name plate → watertight mesh                painted preview
                 (or: AI full 3D via Meshy / import from Tripo)        painting guide, cost & price
 ```
@@ -80,7 +82,8 @@ the pricing is calculated.
 |---|---|
 | `app.py` | The studio app (Gradio web UI) |
 | `memory_factory/medallion.py` | Wedding medallion pipeline |
-| `memory_factory/drawing.py` | Kids' drawing pipeline (plaque, standing figure, AI, import) |
+| `memory_factory/drawing.py` | Kids' drawing pipeline (plaque, standing figure, line-art, AI, import) |
+| `memory_factory/lineart.py` | Line-art sketch → layered relief in the drawing's own outline shape |
 | `memory_factory/relief.py` | Bas-relief compression (the quality core) and shape inflation |
 | `memory_factory/depth.py` | AI depth (Depth Anything V2) with an offline fallback |
 | `memory_factory/mesh.py` | Height map → watertight STL, previews |

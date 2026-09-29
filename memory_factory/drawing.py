@@ -10,6 +10,10 @@ Three modes:
 * "ai full 3d"      : the drawing is sent to Meshy image-to-3D (needs an API
                       key, paid credits). The returned model is scaled,
                       put on a name base and exported as STL.
+* "line-art relief" : for outline sketches (e.g. a Ganesha on a peepal leaf).
+                      The plaque takes the drawing's own outline shape; areas
+                      touching the outline form the background layer, inner
+                      areas form a raised figure layer. See lineart.py.
 * "import 3d model" : you generated the model yourself on Tripo / Meshy's
                       website and downloaded it (GLB/OBJ/STL). Same clean-up,
                       scaling and name base as above - no API key needed.
@@ -27,7 +31,7 @@ from scipy import ndimage
 
 from . import costing, imaging, mesh as mesh_mod, orders, relief, render
 
-MODES = ["relief plaque", "standing figure", "ai full 3d", "import 3d model"]
+MODES = ["relief plaque", "standing figure", "line-art relief", "ai full 3d", "import 3d model"]
 
 
 @dataclass
@@ -182,9 +186,23 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     drawing.save(folder / "original_drawing.jpg", quality=92)
     px = settings.pixel_mm
 
-    img, mask = _prepare(drawing, settings, log)
+    preview_solid = None
+    if settings.mode == "line-art relief":
+        from . import lineart
 
-    if settings.mode in ("ai full 3d", "import 3d model"):
+        la = lineart.LineArtSettings(size_mm=settings.size_mm, pixel_mm=min(px, 0.2),
+                                     groove_mm=settings.line_depth_mm)
+        height, mask, img = lineart.build(drawing, la, log)
+        solid = mesh_mod.heightmap_to_mesh(height, mask, la.pixel_mm)
+        preview_solid = mesh_mod.heightmap_to_mesh(height[::2, ::2], mask[::2, ::2],
+                                                   la.pixel_mm * 2)
+        render_img = render.render_material(height, la.pixel_mm, mask, "antique brass")
+    else:
+        img, mask = _prepare(drawing, settings, log)
+
+    if settings.mode == "line-art relief":
+        pass
+    elif settings.mode in ("ai full 3d", "import 3d model"):
         from .providers import meshy
 
         def band(width_mm):
@@ -216,7 +234,8 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     size = hi - lo
     log.append(f"Final size: {size[0]:.0f} x {size[1]:.0f} x {size[2]:.0f} mm")
 
-    glb = mesh_mod.write_glb_preview(solid, folder / "preview.glb", color=(235, 200, 120))
+    glb = mesh_mod.write_glb_preview(preview_solid or solid, folder / "preview.glb",
+                                     color=(235, 200, 120))
     render_path = folder / "render.png"
     render_img.save(render_path)
     guide = render.painting_guide(img, mask)
@@ -224,7 +243,8 @@ def generate(drawing, settings: DrawingSettings, customer: dict | None = None,
     guide.save(guide_path)
 
     vol = solid.volume_mm3()
-    print_height = min(size) if settings.mode == "relief plaque" else size[2]
+    flat = settings.mode in ("relief plaque", "line-art relief")
+    print_height = min(size) if flat else size[2]
     q = costing.quote_drawing(vol, print_height, paint, packaging)
     gst = costing.load_pricing()["gst_percent"]
 

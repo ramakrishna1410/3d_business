@@ -7,6 +7,7 @@ original colours, with the child's name and age.
 |---|---|---|---|
 | **relief plaque** | The drawing puffed up on a rounded plaque with the name underneath (wall or desk) | Any drawing; the strongest and cheapest option | Nothing extra (offline) |
 | **standing figure** | The drawing's outline inflated on both sides, standing on a name base | Animals, monsters, people with a clear outline | Nothing extra (offline) |
+| **line-art relief** | Outline/pencil sketches (e.g. a Ganesha on a peepal leaf, kolam, a temple). The plaque takes the drawing's **own outline shape**; the figure is raised above the background, each part gently rounded, pencil lines pressed in | Devotional art, wall plaques, sketches with a closed outer outline | Nothing extra (offline) |
 | **ai full 3d** | A real 3D model of the character, made automatically by Meshy | Premium orders | Meshy API key and paid credits |
 | **import 3d model** | You make the model on the Tripo or Meshy website, download GLB/OBJ/STL, and the app scales it, cleans it and adds the name base | Premium orders without an API key | A Tripo/Meshy account |
 
@@ -87,3 +88,18 @@ DRAWING PHOTO ─► APP (auto 3D) ─► PREVIEW TO PARENT ─► PAYMENT ─�
 - **Birthday parties:** a drawing station at the party, with the models delivered a week later.
 - **Grandparents:** make it a gift ("from your grandchild's imagination").
 - Instagram Reels showing drawing → 3D preview → finished model are your best advertising.
+
+## Line-art relief: tips
+
+- The **outer outline must be one closed line**. It becomes the plaque's edge.
+- Areas that **touch the outer outline** become the background layer (the leaf); areas
+  **inside** become the raised figure (the Ganesha). Small gaps in pencil lines are bridged
+  automatically.
+- Darker pencil = deeper groove, so shading (for example, hair) shows up as texture. Very
+  faint lines may disappear; go over them with a darker pencil or pen first.
+- Photograph from directly above in daylight, with no fingers or shadows on the paper.
+- The name fields are not used in this mode (it's an art piece). The **Size** slider sets
+  the longest side; 120–150 mm works well for wall plaques.
+- Print it flat, back down. At 150 mm it's about 8 mm thick, uses ~70 ml of resin and
+  prints in about 1.5–2 hours. Paint it antique gold or brass, or cast it from a mould for a
+  metal look.

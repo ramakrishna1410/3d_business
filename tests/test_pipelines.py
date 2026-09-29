@@ -100,3 +100,36 @@ def test_portrait_crop_keeps_faces_and_aspect():
     x0, y0, x1, y1 = imaging.portrait_crop_box((600, 800), mask, faces, aspect=1.1)
     assert x0 <= 150 and x1 >= 440 and y0 <= 200 and y1 >= 340
     assert abs((x1 - x0) / (y1 - y0) - 1.1) < 0.1
+
+
+def leaf_sketch():
+    """Pencil-style outline: a big closed shape with a figure drawn inside it."""
+    im = Image.new("RGB", (500, 600), (235, 235, 230))
+    d = ImageDraw.Draw(im)
+    d.ellipse([40, 40, 460, 560], outline=(60, 60, 60), width=6)       # leaf outline
+    d.line([250, 45, 250, 555], fill=(90, 90, 90), width=3)            # vein
+    d.ellipse([170, 170, 330, 330], outline=(50, 50, 50), width=4)     # head (figure)
+    d.rectangle([180, 340, 320, 470], outline=(50, 50, 50), width=4)   # body (figure)
+    return im
+
+
+def test_lineart_layers_and_mesh():
+    from memory_factory import lineart
+
+    s = lineart.LineArtSettings(size_mm=80, pixel_mm=0.3)
+    log = []
+    height, solid, _ = lineart.build(leaf_sketch(), s, log)
+    assert "figure" in log[0]
+    h = height[solid]
+    # figure layer stands above the background layer, which stands above the base
+    assert h.max() > s.base_mm + s.figure_mm
+    assert np.percentile(h, 20) >= s.base_mm
+    m = mesh.heightmap_to_mesh(height, solid, s.pixel_mm)
+    assert mesh.is_watertight(m)
+
+
+def test_drawing_lineart_mode():
+    s = drawing.DrawingSettings(mode="line-art relief", size_mm=80)
+    r = drawing.generate(leaf_sketch(), s, {"name": "Parent"})
+    assert r.stl.exists() and r.render.exists()
+    assert any("watertight shells=True" in line for line in r.log)

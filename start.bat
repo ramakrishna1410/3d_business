@@ -9,6 +9,8 @@ if not exist .venv (
     pip install -r requirements.txt || goto :fail
 ) else (
     call .venv\Scripts\activate
+    REM Picks up new packages after a git pull - quick when nothing changed
+    pip install -q -r requirements.txt
 )
 python app.py %*
 goto :eof

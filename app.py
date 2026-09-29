@@ -40,7 +40,7 @@ def _customer(name, phone, consent):
 # Handlers
 # ---------------------------------------------------------------------------
 
-def run_medallion(photo, names, date, extra, diameter, relief_mm, base_mm, text_mm, hole,
+def run_medallion(photo, names, date, extra, layout, diameter, relief_mm, base_mm, text_mm, hole,
                   remove_bg, engine, compression, detail, material, quantity, finish,
                   packaging, cust_name, cust_phone, consent, progress=gr.Progress()):
     if photo is None:
@@ -48,7 +48,7 @@ def run_medallion(photo, names, date, extra, diameter, relief_mm, base_mm, text_
     customer = _customer(cust_name, cust_phone, consent)
     progress(0.1, desc="Removing background, estimating depth...")
     s = medallion.MedallionSettings(
-        names=names, date=date, extra=extra, diameter_mm=diameter, relief_mm=relief_mm,
+        names=names, date=date, extra=extra, layout=layout, diameter_mm=diameter, relief_mm=relief_mm,
         base_mm=base_mm, text_mm=text_mm, keychain_hole=hole, remove_background=remove_bg,
         depth_engine=engine, compression=compression, detail=detail, material=material)
     try:
@@ -56,7 +56,11 @@ def run_medallion(photo, names, date, extra, diameter, relief_mm, base_mm, text_
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
     progress(1.0)
+    for w in r.warnings:
+        gr.Warning(w)
     info = "\n".join(f"- {line}" for line in r.log)
+    if r.warnings:
+        info = "\n".join(f"> ⚠️ {w}" for w in r.warnings) + "\n\n" + info
     return (str(r.proof), str(r.glb) if r.glb else None, [str(r.stl), str(r.proof)],
             r.quote_md, f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
 
@@ -154,7 +158,11 @@ def build_ui() -> gr.Blocks:
                     m_names = gr.Textbox(label="Names", value="Ramesh & Meera")
                     with gr.Row():
                         m_date = gr.Textbox(label="Date", value="22.04.2026")
-                        m_extra = gr.Textbox(label="Message", value="With Love & Thanks")
+                        m_extra = gr.Textbox(label="Message (optional, small)", value="",
+                                             placeholder="e.g. With Love & Thanks")
+                    m_layout = gr.Radio(medallion.LAYOUTS, value="coin", label="Layout",
+                                        info="coin: big faces + names curved along the rim | "
+                                             "classic: smaller photo + straight text")
                     with gr.Row():
                         m_qty = gr.Number(label="Quantity", value=150, precision=0)
                         m_finish = gr.Dropdown(MEDALLION_FINISHES, value=MEDALLION_FINISHES[1],
@@ -163,7 +171,7 @@ def build_ui() -> gr.Blocks:
                                              label="Packaging")
                     with gr.Accordion("Design settings", open=False):
                         m_diam = gr.Slider(30, 80, value=50, step=1, label="Diameter (mm)")
-                        m_relief = gr.Slider(0.6, 3.0, value=1.4, step=0.1, label="Face relief height (mm)")
+                        m_relief = gr.Slider(0.6, 3.0, value=1.5, step=0.1, label="Face relief height (mm)")
                         m_base = gr.Slider(1.5, 5, value=2.5, step=0.1, label="Coin thickness (mm)")
                         m_text = gr.Slider(0.3, 1.5, value=0.7, step=0.1, label="Letter height (mm)")
                         m_hole = gr.Checkbox(label="Keychain / ribbon hole", value=False)
@@ -185,7 +193,7 @@ def build_ui() -> gr.Blocks:
                     m_quote = gr.Markdown()
                     m_log = gr.Markdown()
             m_go.click(run_medallion,
-                       [m_photo, m_names, m_date, m_extra, m_diam, m_relief, m_base, m_text, m_hole,
+                       [m_photo, m_names, m_date, m_extra, m_layout, m_diam, m_relief, m_base, m_text, m_hole,
                         m_bg, m_engine, m_comp, m_detail, m_mat, m_qty, m_finish, m_pack,
                         m_cname, m_cphone, m_consent],
                        [m_proof, m_3d, m_files, m_quote, m_log])

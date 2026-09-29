@@ -5,4 +5,6 @@ scipy>=1.10
 trimesh>=4.0
 gradio>=5.0
 requests>=2.28
+rembg[cpu]>=2.0.50              # AI background removal (downloads ~170 MB model on first use)
+opencv-python-headless>=4.8,<5  # face detection (4.x ships the face models)
 pytest>=7.0

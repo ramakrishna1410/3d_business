@@ -19,9 +19,10 @@ def main():
     ap.add_argument("photo")
     ap.add_argument("--names", default="Ramesh & Meera")
     ap.add_argument("--date", default="")
-    ap.add_argument("--message", default="With Love & Thanks")
+    ap.add_argument("--message", default="")
+    ap.add_argument("--layout", choices=["coin", "classic"], default="coin")
     ap.add_argument("--diameter", type=float, default=50)
-    ap.add_argument("--relief", type=float, default=1.4, help="face relief height in mm")
+    ap.add_argument("--relief", type=float, default=1.5, help="face relief height in mm")
     ap.add_argument("--thickness", type=float, default=2.5, help="coin thickness in mm")
     ap.add_argument("--hole", action="store_true", help="add keychain/ribbon hole")
     ap.add_argument("--engine", choices=["auto", "ai", "fast"], default="auto")
@@ -34,12 +35,14 @@ def main():
     a = ap.parse_args()
 
     s = medallion.MedallionSettings(
-        names=a.names, date=a.date, extra=a.message, diameter_mm=a.diameter,
+        names=a.names, date=a.date, extra=a.message, layout=a.layout, diameter_mm=a.diameter,
         relief_mm=a.relief, base_mm=a.thickness, keychain_hole=a.hole,
         depth_engine=a.engine, remove_background=not a.no_bg_removal)
     r = medallion.generate(a.photo, s, {"name": a.customer, "phone": a.phone, "consent": True},
                            a.qty, a.finish, a.packaging)
     print("\n".join(r.log))
+    for w in r.warnings:
+        print("WARNING:", w)
     print(f"\nSTL:   {r.stl}\nProof: {r.proof}\n")
     print(r.quote_md)
 

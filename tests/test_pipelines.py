@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from memory_factory import config, drawing, medallion, mesh
+from memory_factory import config, drawing, imaging, medallion, mesh
 
 
 @pytest.fixture(autouse=True)
@@ -49,10 +49,12 @@ def test_volume_of_flat_slab():
     assert solid.volume_mm3() == pytest.approx(10 * 20 * 2.0)
 
 
-def test_medallion_end_to_end():
-    s = medallion.MedallionSettings(diameter_mm=40, pixel_mm=0.2, keychain_hole=True,
-                                    remove_background=False, depth_engine="fast")
+@pytest.mark.parametrize("layout,hole", [("coin", False), ("coin", True), ("classic", True)])
+def test_medallion_end_to_end(layout, hole):
+    s = medallion.MedallionSettings(diameter_mm=40, pixel_mm=0.2, keychain_hole=hole,
+                                    layout=layout, remove_background=False, depth_engine="fast")
     r = medallion.generate(couple_photo(), s, {"name": "Test"}, quantity=120)
+    assert any("watertight=True" in line for line in r.log)
     assert r.stl.exists() and r.proof.exists()
     assert 40 * 40 * 2.0 < r.volume_mm3 < 40 * 40 * 5.0
     assert "Suggested price" in r.quote_md
@@ -80,3 +82,21 @@ def test_import_model(tmp_path):
 def test_blank_page_is_rejected():
     with pytest.raises(ValueError):
         drawing.generate(Image.new("RGB", (300, 300), "white"), drawing.DrawingSettings(), {})
+
+
+def test_arc_text_bottom_and_top():
+    n, c = 301, 150
+    bottom = medallion._arc_text(n, c, "RAM & MEERA", 120, 20, "bottom", None)
+    top = medallion._arc_text(n, c, "22.04.2026", 120, 16, "top", None)
+    rows_b = np.nonzero(bottom.max(axis=1) > 0.5)[0]
+    rows_t = np.nonzero(top.max(axis=1) > 0.5)[0]
+    assert rows_b.min() > c and rows_t.max() < c   # bottom arc below centre, top arc above
+    assert bottom.sum() > 0 and top.sum() > 0
+
+
+def test_portrait_crop_keeps_faces_and_aspect():
+    mask = np.ones((800, 600))
+    faces = [(150, 200, 120, 120), (330, 230, 110, 110)]
+    x0, y0, x1, y1 = imaging.portrait_crop_box((600, 800), mask, faces, aspect=1.1)
+    assert x0 <= 150 and x1 >= 440 and y0 <= 200 and y1 >= 340
+    assert abs((x1 - x0) / (y1 - y0) - 1.1) < 0.1

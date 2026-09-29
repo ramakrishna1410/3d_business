@@ -9,5 +9,6 @@ if [ ! -d .venv ]; then
   pip install -r requirements.txt
 else
   . .venv/bin/activate
+  pip install -q -r requirements.txt   # picks up new packages after a git pull
 fi
 python app.py "$@"

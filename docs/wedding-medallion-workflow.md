@@ -38,13 +38,25 @@ heavy filters.
    - the STL file: what the printer needs
    - a 3D preview you can rotate
    - the cost breakdown and suggested price
-4. Tweak if needed (*Design settings*):
+   The app automatically cuts the couple out of the background, finds their faces and
+   crops to **head and shoulders**, so the faces are as big as possible on the coin.
+   If it shows a ⚠️ warning (no faces found, or AI background removal not working),
+   fix that first: use a clearer photo, or re-run `start.bat` so it installs the packages.
+4. Choose a **layout**:
+   | Layout | Looks like | Use when |
+   |---|---|---|
+   | **coin** (default) | Big portrait (about 72% of the coin), names curved along the bottom rim, date (and optional message) curved along the top | Almost always. It looks like a real commemorative coin |
+   | **classic** | Smaller portrait with straight lines of text underneath | Long names or text that must be straight |
+
+   With a keychain hole, the top of the rim is taken by the hole, so names and date share the bottom arc.
+5. Tweak if needed (*Design settings*):
    | Problem | Fix |
    |---|---|
    | Faces look flat | Increase *Face relief height* (up to 2.0 mm) or move *Depth* toward "deep" |
    | Faces look swollen or "balloony" | Move *Depth* toward "flat" (0.3) |
    | Hair and eyes are mushy | Increase *Fine detail* to 1.3–1.5 |
    | Text too thin to print | Increase *Letter height* to 0.9–1.0 mm, and use short names |
+   | Names shrink a lot on the rim | Names are too long for the arc: use first names only ("Ram & Meera"), or the classic layout |
    | Background left over | Tick *Remove background*; install the AI engines (README) |
 
 **Quality rule:** faces on a 50 mm coin are only about 15 mm tall. Always print one

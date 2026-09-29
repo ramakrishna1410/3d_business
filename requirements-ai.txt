@@ -1,6 +1,5 @@
-# Optional AI engines - much better medallion faces.
+# Optional AI depth engine - rounder, more realistic medallion faces.
 # First run downloads the models (~100-200 MB) and caches them.
 -r requirements.txt
 torch>=2.1            # CPU build is fine on a laptop
 transformers>=4.45    # Depth Anything V2 depth model
-rembg[cpu]>=2.0.50    # AI background removal (onnxruntime)

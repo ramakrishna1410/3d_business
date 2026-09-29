@@ -49,13 +49,14 @@ def bas_relief(
     mask: np.ndarray,
     gray: np.ndarray | None = None,
     compression: float = 0.5,
-    detail: float = 1.0,
+    detail: float | np.ndarray = 1.0,
     edge_softness_px: float | None = None,
 ) -> np.ndarray:
     """Return relief heights 0..1 (0 = background plane).
 
     compression: 0 (almost flat, coin-like) .. 1 (close to the raw depth)
-    detail     : multiplier for fine texture (hair, eyes, fabric)
+    detail     : multiplier for fine texture (hair, eyes, fabric); a number or
+                 a per-pixel map (e.g. sharp on faces, soft on clothes)
     """
     depth = np.asarray(depth, dtype=np.float64)
     soft = np.clip(np.asarray(mask, dtype=np.float64), 0, 1)
@@ -90,7 +91,7 @@ def bas_relief(
     rel -= np.percentile(rel[hard], 1)
 
     # 5: fine detail from the photo and soft blending into the background.
-    if gray is not None and detail > 0:
+    if gray is not None and np.any(np.asarray(detail) > 0):
         sigma = max(1.0, min(depth.shape) / 250)
         hp = gray - ndimage.gaussian_filter(gray, sigma * 4)
         scale = np.percentile(rel[hard], 99) + 1e-9

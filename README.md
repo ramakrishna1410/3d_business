@@ -18,9 +18,10 @@ tested through Instagram, wedding expos and school tie-ups before renting mall s
 
 ```
  UPLOAD ─► AUTO PIPELINE ──────────────────────────────────────────► OUTPUT
- couple photo   background removal → depth (AI) → bas-relief         STL for the printer
-                compression → coin layout (portrait, rim, names,      proof card for WhatsApp
-                date, keychain hole) → watertight mesh                3D preview, cost & price
+ couple photo   background removal → face detection & head-and-       STL for the printer
+                shoulders crop → depth → bas-relief compression →     proof card for WhatsApp
+                coin layout (big portrait, names curved on the rim)   3D preview, cost & price
+                → watertight mesh
  kids drawing   find drawing on paper → inflate shape → pencil-line   STL (plaque / figure)
                 grooves → name plate → watertight mesh                painted preview
                 (or: AI full 3D via Meshy / import from Tripo)        painting guide, cost & price
@@ -39,14 +40,19 @@ approved, printing, … delivered).
 
 On macOS/Linux, run `./start.sh` instead.
 
-**Better faces (recommended once you're selling medallions):**
+AI background removal (rembg) and face detection (OpenCV) are part of the standard install.
+The background-removal model (~170 MB) downloads the first time you make a medallion.
+
+**Rounder, more realistic faces (recommended once you're selling medallions):**
 ```
 .venv\Scripts\activate
 pip install -r requirements-ai.txt
 ```
-This adds Depth Anything V2 (AI depth) and rembg (AI background removal). The models
-download on first use. Everything still works without them, just with simpler depth.
+This adds the Depth Anything V2 AI depth model. Without it, the app uses a simpler depth
+estimate that still gives recognisable faces.
 The **Settings** tab shows which engines are active.
+
+**After `git pull`:** just run `start.bat` again. It installs any new packages automatically.
 
 **Use it from a shop tablet or phone:** run `python app.py --lan` and open
 `http://<laptop-ip>:7860` on a device on the same Wi-Fi.

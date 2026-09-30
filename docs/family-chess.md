@@ -14,12 +14,30 @@ You get classic, instantly recognisable pieces, personalised with the family's f
 White side = one family, black side = the other: great as a **wedding gift that brings the
 two families together**, a 60th-birthday gift, or a grandparents' gift.
 
+## Two styles
+
+| Style | Look | How the face gets there |
+|---|---|---|
+| **photo** (default) ⭐ | A **sharp colour photo** in a gold or silver framed oval window, like a locket | Each piece has a 1.2 mm deep oval window. The tool makes a **photo sheet** at exact size: print it, cut, stick, and cover with a clear dome |
+| relief | The face sculpted in the piece (single colour) | Printed as part of the piece. Faces are small (14–25 mm), so best on resin |
+
+### Finishing the photo style
+1. Print `photo_sheet.png` **at 100% / actual size** on **A4 glossy photo sticker paper** (any
+   photo studio or colour printer). The ovals are exactly the size of the windows.
+2. Cut along the grey oval line, with scissors or an oval craft punch.
+3. Peel and stick into the window of the matching piece (King, Queen, Bishop 1…).
+4. For a premium glossy finish, add a drop of **clear doming resin / UV resin** over the photo,
+   or use ready-made **clear epoxy dome stickers** of the same size. Wear gloves for doming resin.
+5. Optional upgrade: have a UV printing shop print the ovals on 1 mm acrylic for a glass-like
+   insert.
+
 ## Make it
 ```
 python tools/family_chess_mockup.py family_photo.jpg --pawns "A,R,M,S,K,V,P,D"
 ```
 Faces are taken left to right (1st = King, 2nd = Queen, then Bishops, Knights, Rooks).
-Output: one STL per unique piece plus three mockup images (pieces, close-up, full board).
+Output: one STL per unique piece, `photo_sheet.png` (photo style), and three mockup images
+(pieces, close-up, full board). Use `--style relief` for the sculpted-face version.
 
 ## Printing
 - 32 pieces: print each side's 16 pieces in its colour (e.g. gold silk PLA vs silver silk PLA).

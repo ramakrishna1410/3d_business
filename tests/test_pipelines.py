@@ -175,3 +175,19 @@ def test_chess_pieces_are_closed_and_sized(kind):
     assert abs((hi[2] - lo[2]) - chess.SPECS[kind].height) < 12
     assert lo[2] >= -0.01          # stands on the table
     assert m.volume_mm3() > 0
+
+
+def test_chess_photo_window_and_sheet():
+    from memory_factory import chess
+
+    img = Image.new("RGB", (160, 200), (200, 150, 120))
+    face = chess.Face(img, np.ones((200, 160)), np.zeros((200, 160)), (40, 40, 80, 80))
+    m = chess.piece("king", face, style="photo")
+    assert m.volume_mm3() > 0
+    photo = chess.window_photo(face, *chess.window_size_mm("king"))
+    w_mm, h_mm = chess.window_size_mm("king")
+    assert abs(photo.width - w_mm / 25.4 * 300) < 2       # printed at true size
+    cols = chess.photo_face_colors(m, "king", photo, (214, 168, 82))
+    assert (cols != [214, 168, 82]).any(axis=1).sum() > 100  # photo shows in the window
+    sheet = chess.photo_sheet([("King", photo)])
+    assert sheet.size == (2480, 3507)

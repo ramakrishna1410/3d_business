@@ -40,7 +40,7 @@ SPECS = {
     "bishop": PieceSpec(72, 15, 17, 21, 31, 7.5),
     "knight": PieceSpec(64, 15, 16, 20, 30, 6.0),
     "rook":   PieceSpec(58, 15, 17, 21, 26, 9.3),
-    "pawn":   PieceSpec(50, 13, 14, 17, 22, 6.0),
+    "pawn":   PieceSpec(50, 13, 12, 13, 20.5, 6.0),
 }
 
 
@@ -48,10 +48,20 @@ SPECS = {
 # Bodies
 # ---------------------------------------------------------------------------
 
+def _densify(profile, step=1.5):
+    """Insert points so no profile segment is longer than `step` mm."""
+    p = np.asarray(profile, float)
+    out = [p[0]]
+    for a, b in zip(p[:-1], p[1:]):
+        n = max(1, int(np.ceil(np.linalg.norm(b - a) / step)))
+        out += [a + (b - a) * t for t in np.linspace(0, 1, n + 1)[1:]]
+    return np.array(out)
+
+
 def _revolve(profile, sections=64) -> mesh_mod.Mesh:
     import trimesh
 
-    tm = trimesh.creation.revolve(np.asarray(profile, float), sections=sections)
+    tm = trimesh.creation.revolve(_densify(profile), sections=sections)
     return mesh_mod.Mesh(np.asarray(tm.vertices, float), np.asarray(tm.faces, np.int64))
 
 
@@ -102,7 +112,11 @@ def body(kind: str) -> mesh_mod.Mesh:
         parts.append(_horse_head())
     else:
         raise ValueError(kind)
+    _PROFILES[kind] = np.asarray(prof, float)
     return mesh_mod.combine([_revolve(prof)] + parts)
+
+
+_PROFILES: dict[str, np.ndarray] = {}
 
 
 def _horse_head(thickness=12.0, px=0.25) -> mesh_mod.Mesh:
@@ -175,15 +189,29 @@ def _oval(w, h, soft=1.5):
     return r, np.clip((1 - r) * min(w, h) / (2 * soft), 0, 1)
 
 
+WINDOW = 0.84   # the photo window / portrait area is 84% of the cameo size
+
+
 def cameo(width_mm, height_mm, face: Face | None = None, initial: str = "",
-          px: float = 0.15) -> mesh_mod.Mesh:
-    """Oval medallion lying in x/y with the relief pointing to +z."""
+          px: float = 0.15, style: str = "relief") -> mesh_mod.Mesh:
+    """Oval medallion lying in x/y, front pointing to +z.
+
+    style "relief": the face is sculpted in relief (single-colour print).
+    style "photo" : a shallow oval window (1.2 mm deep) framed by a rim, for a
+                    printed colour photo sticker + clear dome (see photo_sheet).
+    """
     w, h = int(width_mm / px) | 1, int(height_mm / px) | 1
     r, inside = _oval(w, h)
     solid = r <= 1.0
-    rim = np.clip((r - 0.84) / 0.06, 0, 1) * (r <= 1.0)
+    rim = np.clip((r - WINDOW) / 0.06, 0, 1) * (r <= 1.0)
     plate = 1.4
     height = np.full((h, w), plate)
+    if style == "photo" and face is not None:
+        floor = 1.2
+        height = floor + rim * 1.2
+        m = mesh_mod.heightmap_to_mesh(height, solid, px, bottom=0.0)
+        lo, hi = m.bounds()
+        return m.translated([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, 0])
     if face is not None:
         def fit(a):
             return np.asarray(Image.fromarray(np.asarray(a, np.float32)).resize((w, h), Image.BICUBIC),
@@ -195,7 +223,7 @@ def cameo(width_mm, height_mm, face: Face | None = None, initial: str = "",
                                 fit(imaging.to_gray(face.img)), compression=0.5, detail=detail)
         t = np.clip((np.arange(h) - h * 0.7) / (h * 0.3), 0, 1)       # fade shoulders
         rel *= (1 - t * t * (3 - 2 * t))[:, None]
-        rel *= np.clip((0.84 - r) / 0.08, 0, 1)
+        rel *= np.clip((WINDOW - r) / 0.08, 0, 1)
         height += rel * 1.6
     elif initial:
         tm = imaging.text_mask(initial, int(w * 0.6), int(h * 0.6))
@@ -209,14 +237,100 @@ def cameo(width_mm, height_mm, face: Face | None = None, initial: str = "",
     return m.translated([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, 0])
 
 
-def piece(kind: str, face: Face | None = None, initial: str = "") -> mesh_mod.Mesh:
+def piece(kind: str, face: Face | None = None, initial: str = "",
+          style: str = "relief") -> mesh_mod.Mesh:
     """A complete piece standing on z=0, cameo facing the viewer (-y)."""
     s = SPECS[kind]
-    c = cameo(s.cameo_w, s.cameo_h, face, initial)
+    b = body(kind)
+    c = cameo(s.cameo_w, s.cameo_h, face, initial, style=style)
     c = c.rotated_x(90)  # relief (+z) now points to -y, image-up points to +z
     lo, hi = c.bounds()
-    c = c.translated([0, -(s.body_r_at_cameo - 1.0) - hi[1], s.cameo_z - (lo[2] + hi[2]) / 2])
-    return mesh_mod.combine([body(kind), c])
+    c = c.translated([0, -(front_depth(b, kind) - 1.0) - hi[1], s.cameo_z - (lo[2] + hi[2]) / 2])
+    return mesh_mod.combine([b, c])
+
+
+def front_depth(b: mesh_mod.Mesh, kind: str) -> float:
+    """How far the body sticks out towards the viewer behind the cameo."""
+    s = SPECS[kind]
+    if kind == "knight" or kind not in _PROFILES:
+        return s.body_r_at_cameo
+    prof = _PROFILES[kind]
+    zs = np.linspace(s.cameo_z - s.cameo_h / 2, s.cameo_z + s.cameo_h / 2, 60)
+    # Walk the profile top-down from the base upwards; take the widest point.
+    return float(np.interp(zs, prof[5:, 1], prof[5:, 0]).max())
+
+
+# ---------------------------------------------------------------------------
+# Colour photos for the "photo" style
+# ---------------------------------------------------------------------------
+
+def window_size_mm(kind: str) -> tuple[float, float]:
+    s = SPECS[kind]
+    return s.cameo_w * WINDOW, s.cameo_h * WINDOW
+
+
+def window_photo(face: Face, w_mm: float, h_mm: float, dpi: int = 300,
+                 background=((250, 238, 214), (214, 176, 120))) -> Image.Image:
+    """Oval colour portrait exactly the size of a photo window (RGBA)."""
+    W, H = int(w_mm / 25.4 * dpi), int(h_mm / 25.4 * dpi)
+    img = face.img.convert("RGB").resize((W, H), Image.LANCZOS)
+    m = np.asarray(Image.fromarray((np.clip(face.mask, 0, 1) * 255).astype(np.uint8))
+                   .resize((W, H), Image.BILINEAR), dtype=np.float64) / 255.0
+    m = ndimage.gaussian_filter(m, max(1.0, W / 40))[..., None]  # soft, feathered edges
+    yy, xx = np.mgrid[0:H, 0:W]
+    rr = np.hypot((xx - W / 2) / (W / 2), (yy - H / 2) / (H / 2))
+    top, bot = np.array(background[0], float), np.array(background[1], float)
+    bg = top[None, None] * (1 - rr[..., None] * 0.9) + bot[None, None] * rr[..., None] * 0.9
+    rgb = np.asarray(img, float) * m + bg * (1 - m)
+    alpha = (np.clip((1 - rr) * min(W, H) / 4, 0, 1) * 255).astype(np.uint8)
+    return Image.fromarray(np.dstack([np.clip(rgb, 0, 255).astype(np.uint8), alpha]), "RGBA")
+
+
+def photo_face_colors(m: mesh_mod.Mesh, kind: str, photo: Image.Image, base_rgb) -> np.ndarray:
+    """Per-face colours: the photo inside the window, the material colour elsewhere."""
+    s = SPECS[kind]
+    ww, wh = window_size_mm(kind)
+    tri = m.vertices[m.faces]
+    cen = tri.mean(axis=1)
+    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    x, y, z = cen[:, 0], cen[:, 1], cen[:, 2]
+    # Window floor sits in front of the body surface (y = -body_r); body faces don't.
+    in_window = (n[:, 1] < -0.8) & (y < -(front_depth(body(kind), kind) + 0.05)) & \
+        (((x / (ww / 2)) ** 2 + ((z - s.cameo_z) / (wh / 2)) ** 2) < 0.97)
+    cols = np.tile(np.asarray(base_rgb, float), (len(cen), 1))
+    ph = np.asarray(photo.convert("RGB"), float)
+    ph_h, ph_w = ph.shape[:2]
+    u = np.clip(((x + ww / 2) / ww * (ph_w - 1)).astype(int), 0, ph_w - 1)
+    v = np.clip(((s.cameo_z + wh / 2 - z) / wh * (ph_h - 1)).astype(int), 0, ph_h - 1)
+    cols[in_window] = ph[v[in_window], u[in_window]]
+    return cols
+
+
+def photo_sheet(photos: list[tuple[str, Image.Image]], dpi: int = 300) -> Image.Image:
+    """A4 sheet of window photos at exact size, with cut lines and labels."""
+    from PIL import ImageDraw
+
+    from .imaging import get_font
+
+    page = Image.new("RGB", (int(210 / 25.4 * dpi), int(297 / 25.4 * dpi)), "white")
+    draw = ImageDraw.Draw(page)
+    font = get_font(int(dpi * 0.1))
+    draw.text((int(dpi * 0.4), int(dpi * 0.3)),
+              "Family chess - photo windows. Print at 100% (actual size) on glossy "
+              "sticker paper, cut along the grey line.", font=font, fill=(80, 80, 80))
+    margin, gap = int(dpi * 0.4), int(dpi * 0.2)
+    x, y, row_h = margin, int(dpi * 0.7), 0
+    for label, ph in photos:
+        w, h = ph.size
+        if x + w > page.width - margin:
+            x, y, row_h = margin, y + row_h + gap + int(dpi * 0.15), 0
+        page.paste(ph, (x, y), ph)
+        draw.ellipse([x - 2, y - 2, x + w + 2, y + h + 2], outline=(160, 160, 160), width=2)
+        draw.text((x, y + h + 4), label, font=font, fill=(60, 60, 60))
+        x += w + gap
+        row_h = max(row_h, h)
+    return page
 
 
 # Standard back rank, left to right from white's side.

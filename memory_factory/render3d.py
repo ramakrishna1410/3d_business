@@ -20,6 +20,7 @@ class Item:
     color: tuple
     shine: float = 0.3
     layer: int = 1   # lower layers are drawn first (e.g. 0 = table/board)
+    face_colors: np.ndarray | None = None  # optional (n_faces, 3) per-face colours
 
 
 def _look_at(eye, target, up=(0, 0, 1)):
@@ -50,10 +51,13 @@ def render(items: list[Item], eye, target, size=(1600, 1000), fov_deg=35.0,
         view = eye - cen
         facing = np.einsum("ij,ij->i", n, view) > 0
         tri, n, cen = tri[facing], n[facing], cen[facing]
+        fcol = it.face_colors[facing] if it.face_colors is not None else None
         cam = (tri - eye) @ rot.T                      # camera space, looking down -z
         z = -cam[..., 2]
         ok = (z > 1).all(axis=1)
         cam, z, n, cen = cam[ok], z[ok], n[ok], cen[ok]
+        if fcol is not None:
+            fcol = fcol[ok]
         sx = W / 2 + fpx * cam[..., 0] / z
         sy = H / 2 - fpx * cam[..., 1] / z
         shade = np.full(len(n), 0.22)
@@ -64,8 +68,8 @@ def render(items: list[Item], eye, target, size=(1600, 1000), fov_deg=35.0,
         h = lights[0][0] + vdir
         h /= np.linalg.norm(h, axis=1, keepdims=True)
         spec = np.clip(np.einsum("ij,ij->i", n, h), 0, 1) ** 30 * it.shine
-        base = np.array(it.color, float)
-        c = np.clip(base[None] * shade[:, None] + 255 * spec[:, None], 0, 255).astype(np.uint8)
+        base = fcol if fcol is not None else np.array(it.color, float)[None]
+        c = np.clip(base * shade[:, None] + 255 * spec[:, None], 0, 255).astype(np.uint8)
         polys.append(np.stack([sx, sy], axis=-1))
         depths.append(z.mean(axis=1))
         cols.append(c)

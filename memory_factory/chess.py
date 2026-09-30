@@ -286,8 +286,13 @@ def window_photo(face: Face, w_mm: float, h_mm: float, dpi: int = 300,
     return Image.fromarray(np.dstack([np.clip(rgb, 0, 255).astype(np.uint8), alpha]), "RGBA")
 
 
-def photo_face_colors(m: mesh_mod.Mesh, kind: str, photo: Image.Image, base_rgb) -> np.ndarray:
-    """Per-face colours: the photo inside the window, the material colour elsewhere."""
+def photo_face_colors(m: mesh_mod.Mesh, kind: str, photo: Image.Image, base_rgb,
+                      normal_limit: float = -0.8) -> np.ndarray:
+    """Per-face colours: the photo inside the window, the material colour elsewhere.
+
+    normal_limit: how much a face must point at the viewer to take the photo
+    colour (-0.8 for a flat window; about -0.1 for a sculpted, full-colour face).
+    """
     s = SPECS[kind]
     ww, wh = window_size_mm(kind)
     tri = m.vertices[m.faces]
@@ -296,7 +301,7 @@ def photo_face_colors(m: mesh_mod.Mesh, kind: str, photo: Image.Image, base_rgb)
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     x, y, z = cen[:, 0], cen[:, 1], cen[:, 2]
     # Window floor sits in front of the body surface (y = -body_r); body faces don't.
-    in_window = (n[:, 1] < -0.8) & (y < -(front_depth(body(kind), kind) + 0.05)) & \
+    in_window = (n[:, 1] < normal_limit) & (y < -(front_depth(body(kind), kind) + 0.05)) & \
         (((x / (ww / 2)) ** 2 + ((z - s.cameo_z) / (wh / 2)) ** 2) < 0.97)
     cols = np.tile(np.asarray(base_rgb, float), (len(cen), 1))
     ph = np.asarray(photo.convert("RGB"), float)

@@ -164,3 +164,14 @@ def test_lineart_result_does_not_depend_on_print_size():
         lineart.build(leaf_sketch(), lineart.LineArtSettings(size_mm=size, pixel_mm=0.3), log)
         counts.append(log[0])
     assert counts[0] == counts[1]
+
+
+@pytest.mark.parametrize("kind", ["king", "queen", "bishop", "knight", "rook", "pawn"])
+def test_chess_pieces_are_closed_and_sized(kind):
+    from memory_factory import chess
+
+    m = chess.piece(kind, None, "A")
+    lo, hi = m.bounds()
+    assert abs((hi[2] - lo[2]) - chess.SPECS[kind].height) < 12
+    assert lo[2] >= -0.01          # stands on the table
+    assert m.volume_mm3() > 0

@@ -27,6 +27,9 @@ tested through Instagram, wedding expos and school tie-ups before renting mall s
                 over background → rounded areas → pencil grooves)
                 grooves → name plate → watertight mesh                painted preview
                 (or: AI full 3D via Meshy / import from Tripo)        painting guide, cost & price
+ 3D head        (Tripo app file, or photo → Tripo API) → upright,     STL: King / Queen / Bishop
+ (Royal Chess)  face front → neck cut → solid head → crown / tiara /  chess piece with the
+                mitre fitted to the head → royal bust + pedestal      person's face, preview, quote
 ```
 
 Every job is saved as an order folder in `orders/` with the original image, the STL,
@@ -55,6 +58,10 @@ estimate that still gives recognisable faces.
 The **Settings** tab shows which engines are active.
 
 **After `git pull`:** just run `start.bat` again. It installs any new packages automatically.
+
+**Royal Chess (Tripo API, optional):** create `.env` next to `app.py` containing
+`TRIPO_API_KEY=sk-...` (git-ignored; never commit it). Without a key, use heads exported from
+the Tripo app. See `docs/royal-chess.md`.
 
 **Use it from a shop tablet or phone:** run `python app.py --lan` and open
 `http://<laptop-ip>:7860` on a device on the same Wi-Fi.
@@ -90,10 +97,13 @@ the pricing is calculated.
 | `memory_factory/render.py` | Material renders, WhatsApp proof card, painting guide |
 | `memory_factory/costing.py` + `config/pricing.json` | Cost per piece and suggested price |
 | `memory_factory/providers/meshy.py` | Optional Meshy API and import of Tripo/Meshy downloads |
+| `memory_factory/royal.py` | Royal Chess: 3D head → King / Queen / Bishop piece (one watertight solid) |
+| `memory_factory/providers/tripo.py` | Tripo API v3: photo → 3D head (Ultra geometry, no texture) |
 | `tools/` | Command-line versions of both pipelines |
 | `docs/wedding-medallion-workflow.md` | Medallion SOP: order → proof → print → pack |
 | `docs/kids-drawing-workflow.md` | Drawing SOP: capture → 3D → print → paint |
 | `docs/costing.md` | Cost model, pricing and break-even |
+| `docs/royal-chess.md` | Royal Chess: Tripo settings, the tab, printing and finishing |
 
 ## Before you sell
 

@@ -25,5 +25,15 @@
     "labour_minutes": { "unpainted": 20, "hand painted": 75 },
     "design_minutes": 15,
     "target_margin_percent": 60
+  },
+
+  "royal_chess": {
+    "finish_per_piece": { "raw resin": 0, "statue white": 40, "bronze": 80, "gold": 90 },
+    "packaging_per_piece": { "none": 0, "velvet box": 150, "display base + box": 350 },
+    "hollow_factor": 0.45,
+    "print_hours_per_cm_height": 0.35,
+    "head_model_cost": 45,
+    "labour_minutes": 70,
+    "target_margin_percent": 60
   }
 }

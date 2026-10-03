@@ -88,3 +88,24 @@ def quote_drawing(volume_mm3: float, height_mm: float, paint: str, packaging: st
     q.price_per_piece = _price_from_margin(q.cost_per_piece, d["target_margin_percent"])
     q.notes.append(f"Estimated print time ≈ {hours:.1f} h (several pieces can share one plate).")
     return q
+
+
+def quote_royal(volume_mm3: float, height_mm: float, finish: str, packaging: str) -> Quote:
+    p = load_pricing()
+    r = p["royal_chess"]
+    q = Quote(quantity=1)
+    # Resin vendors hollow busts this size; solid volume x factor is the resin actually used.
+    q.lines["Resin (hollowed)"] = resin_cost(volume_mm3 * r["hollow_factor"], p)
+    hours = max(1.0, height_mm / 10 * r["print_hours_per_cm_height"])
+    q.lines["Printer time"] = hours * p["machine_cost_per_print_hour"]
+    q.lines["3D head (Tripo credits)"] = r["head_model_cost"]
+    q.lines["Finish"] = r["finish_per_piece"].get(finish, 0)
+    q.lines["Packaging"] = r["packaging_per_piece"].get(packaging, 0)
+    q.lines["Labour (check, support removal, cure, finish)"] = r["labour_minutes"] / 60 * p["labour_per_hour"]
+    q.lines["Electricity & consumables"] = p["electricity_and_consumables_per_piece"]
+    q.cost_per_piece = sum(q.lines.values())
+    q.price_per_piece = _price_from_margin(q.cost_per_piece, r["target_margin_percent"])
+    q.notes.append(f"Estimated print time ≈ {hours:.1f} h. Ask the print shop to hollow the piece "
+                   "with drain holes (cheaper, less resin); add weight inside afterwards.")
+    q.notes.append("If you outsource printing, replace resin + printer time with the shop's quote.")
+    return q

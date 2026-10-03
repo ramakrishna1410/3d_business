@@ -191,3 +191,118 @@ def test_chess_photo_window_and_sheet():
     assert (cols != [214, 168, 82]).any(axis=1).sum() > 100  # photo shows in the window
     sheet = chess.photo_sheet([("King", photo)])
     assert sheet.size == (2480, 3507)
+
+
+# ---------------------------------------------------------------- Royal Chess
+def synthetic_bust(tmp_path, turn_deg=0):
+    """Head (with nose, lips, chin) on a neck and shoulders, face towards -y, z-up."""
+    trimesh = pytest.importorskip("trimesh")
+    parts = [
+        trimesh.creation.box((44, 18, 12), trimesh.transformations.translation_matrix((0, 0, 6))),
+        trimesh.creation.cylinder(4.5, 14, transform=trimesh.transformations.translation_matrix((0, 0, 17))),
+        trimesh.creation.icosphere(4, 11.0).apply_scale((0.85, 1.0, 1.15)).apply_translation((0, 0, 33)),
+        trimesh.creation.icosphere(3, 2.4).apply_translation((0, -10.6, 32)),     # nose
+        trimesh.creation.icosphere(3, 1.6).apply_translation((0, -9.6, 27.5)),    # lips
+        trimesh.creation.icosphere(3, 2.6).apply_translation((0, -7.5, 23.5)),    # chin
+    ]
+    m = trimesh.util.concatenate(parts)
+    m.apply_transform(trimesh.transformations.rotation_matrix(np.radians(turn_deg), [0, 0, 1]))
+    path = tmp_path / f"head_{turn_deg}.stl"
+    m.export(path)
+    return path
+
+
+@pytest.mark.parametrize("turn", [0, 90, 180])
+def test_royal_finds_the_face(tmp_path, turn):
+    from memory_factory import royal
+
+    path = synthetic_bust(tmp_path, turn)
+    v = royal.orient(royal.load_head(path), ".stl", "auto", [])
+    top = v[v[:, 2] > 20]
+    nose = top[np.argmin(top[:, 1])]
+    assert nose[1] < -9 and abs(nose[0]) < 3      # nose ends up pointing to -y
+
+
+@pytest.mark.parametrize("piece", ["king", "queen", "bishop"])
+def test_royal_piece_is_one_watertight_solid(tmp_path, piece):
+    pytest.importorskip("manifold3d")
+    pytest.importorskip("skimage")
+    from memory_factory import royal
+
+    s = royal.RoyalSettings(piece=piece, size=list(royal.SIZES)[0], quality="preview")
+    log = []
+    p, _ = royal.build_piece(synthetic_bust(tmp_path), s, log)
+    assert p.is_watertight
+    assert len(p.split(only_watertight=False)) == 1
+    assert 60 < p.bounds[1][2] < 95                # chess-set size (King ~80 mm)
+    assert abs(p.bounds[0][2]) < 0.5               # stands on the table
+
+
+def test_royal_generate_end_to_end(tmp_path):
+    pytest.importorskip("manifold3d")
+    from memory_factory import royal
+
+    s = royal.RoyalSettings(piece="king", quality="preview")
+    r = royal.generate(synthetic_bust(tmp_path), s, {"name": "Test"})
+    assert r.stl.exists() and r.render.exists() and (r.folder / "order.json").exists()
+    assert 95 < r.height_mm < 130                  # couple-gift size
+    assert "Suggested price" in r.quote_md
+
+
+class _Resp:
+    def __init__(self, data=None, status=200, content=b""):
+        self._data, self.status_code, self.content, self.text = data, status, content, ""
+
+    def json(self):
+        return self._data
+
+
+class _FakeTripo:
+    """Records calls; plays upload -> task -> running -> success -> download."""
+
+    def __init__(self):
+        self.calls, self.polls = [], 0
+
+    def post(self, url, headers=None, files=None, json=None, timeout=None):
+        self.calls.append(("POST", url, json))
+        assert headers["Authorization"] == "Bearer sk-test"
+        if url.endswith("/files"):
+            return _Resp({"code": 0, "data": {"file_token": "file_1"}})
+        return _Resp({"code": 0, "data": {"task_id": "task_1"}})
+
+    def get(self, url, headers=None, timeout=None):
+        self.calls.append(("GET", url, None))
+        if url.endswith("/tasks/task_1"):
+            self.polls += 1
+            if self.polls < 3:
+                return _Resp({"code": 0, "data": {"status": "running", "progress": 40}})
+            return _Resp({"code": 0, "data": {"status": "success", "credits_consumed": 30,
+                                              "output": {"model_url": "https://cdn/x.glb"}}})
+        return _Resp(content=b"glTF-bytes")
+
+
+def test_tripo_client_flow(tmp_path):
+    from memory_factory.providers import tripo
+
+    photo = tmp_path / "p.webp"
+    couple_photo().save(photo)
+    fake, log = _FakeTripo(), []
+    out = tripo.photo_to_head_model(photo, "sk-test", tmp_path, log, session=fake, sleep=lambda s: None)
+    assert out.read_bytes() == b"glTF-bytes"
+    body = next(c[2] for c in fake.calls if c[1].endswith("/generation/image-to-model"))
+    assert body["input"] == "file_1"
+    assert body["texture"] is False and body["pbr"] is False      # bare geometry for printing
+    assert body["geometry_quality"] == "detailed"
+    assert fake.polls == 3 and "30 credits" in log[-1]
+
+
+def test_tripo_errors_are_readable(tmp_path):
+    from memory_factory.providers import tripo
+
+    class Bad(_FakeTripo):
+        def post(self, url, **kw):
+            return _Resp({"code": 1001, "message": "invalid key"}, status=401)
+
+    with pytest.raises(tripo.TripoError, match="API key rejected"):
+        tripo.upload_image(tmp_path / "x.jpg" if (tmp_path / "x.jpg").write_bytes(b"1") else None,
+                           "sk-bad", session=Bad())

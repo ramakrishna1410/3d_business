@@ -6,8 +6,9 @@ Run:   python app.py            (opens http://127.0.0.1:7860 in your browser)
 Tabs
     1. Wedding Medallion   couple photo  -> coin STL + WhatsApp proof + quote
     2. Kids Drawing 3D     drawing photo -> plaque / figure STL + painting guide + quote
-    3. Orders              every job saved in ./orders
-    4. Settings            AI engine status, Meshy key, prices
+    3. Royal Chess         photo (Tripo API) or Tripo 3D head -> King/Queen/Bishop STL
+    4. Orders              every job saved in ./orders
+    5. Settings            AI engine status, API keys, prices
 """
 
 from __future__ import annotations
@@ -18,16 +19,20 @@ import os
 
 import gradio as gr
 
-from memory_factory import depth, drawing, imaging, medallion, orders
-from memory_factory.config import PRICING_FILE, load_pricing
+from memory_factory import depth, drawing, imaging, medallion, orders, royal
+from memory_factory.config import PRICING_FILE, load_local_env, load_pricing
 from memory_factory.render import MATERIALS
 
 MEDALLION_FINISHES = list(load_pricing()["medallion"]["finish_per_piece"])
 MEDALLION_PACKAGING = list(load_pricing()["medallion"]["packaging_per_piece"])
 DRAWING_PAINT = list(load_pricing()["drawing"]["paint_per_piece"])
 DRAWING_PACKAGING = list(load_pricing()["drawing"]["packaging_per_piece"])
+ROYAL_FINISHES = list(load_pricing()["royal_chess"]["finish_per_piece"])
+ROYAL_PACKAGING = list(load_pricing()["royal_chess"]["packaging_per_piece"])
 
-_session = {"meshy_key": os.environ.get("MESHY_API_KEY", "")}
+load_local_env()
+_session = {"meshy_key": os.environ.get("MESHY_API_KEY", ""),
+            "tripo_key": os.environ.get("TRIPO_API_KEY", "")}
 
 
 def _customer(name, phone, consent):
@@ -85,6 +90,37 @@ def run_drawing(image, child, age_line, mode, size_mm, puff, line_depth, roundne
             f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
 
 
+ROYAL_PIECES = {"King": "king", "Queen": "queen", "Bishop (child)": "bishop"}
+ROYAL_SOURCES = ["Tripo 3D file (GLB/OBJ/STL)", "Photo -> Tripo API (automatic)"]
+
+
+def run_royal(source, model_file, photo, piece, size, quality, finish, packaging, turn, auto_neck,
+              neck, crown, cust_name, cust_phone, consent, progress=gr.Progress()):
+    customer = _customer(cust_name, cust_phone, consent)
+    if source == ROYAL_SOURCES[1]:
+        if not photo:
+            raise gr.Error("Upload a clear front photo (face visible, no cap or sunglasses).")
+        if not _session["tripo_key"]:
+            raise gr.Error("Add your Tripo API key in the Settings tab first.")
+        src = photo
+    else:
+        if not model_file:
+            raise gr.Error("Upload the head model exported from Tripo (GLB, OBJ or STL).")
+        src = model_file
+    s = royal.RoyalSettings(piece=ROYAL_PIECES[piece], size=size, quality=quality, turn=turn,
+                            neck=None if auto_neck else neck, crown=crown, finish=finish,
+                            packaging=packaging)
+    progress(0.02, desc="Starting...")
+    try:
+        r = royal.generate(src, s, customer, api_key=_session["tripo_key"], progress=progress)
+    except Exception as exc:
+        raise gr.Error(str(exc)) from exc
+    info = "\n".join(f"- {line}" for line in r.log)
+    files = [str(r.stl), str(r.render)] + ([str(r.head_model)] if r.head_model else [])
+    return (str(r.render), str(r.glb) if r.glb else None, files, r.quote_md,
+            f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
+
+
 ORDER_COLS = ["order_id", "date", "product", "customer", "phone", "qty", "price", "status", "folder"]
 STATUSES = ["proof sent", "approved", "advance paid", "printing", "finishing", "ready",
             "delivered", "cancelled"]
@@ -118,6 +154,8 @@ def engine_status():
         "| Cuts people out of busy backgrounds |",
         f"| Meshy API key | {ok + ' set' if _session['meshy_key'] else no + ' not set'} "
         "| 'ai full 3d' drawing mode |",
+        f"| Tripo API key | {ok + ' set' if _session['tripo_key'] else no + ' not set'} "
+        "| Royal Chess: photo -> 3D head automatically |",
         "", "Install the AI engines with `pip install -r requirements-ai.txt` "
         "(see README). Everything works without them, just with simpler results.",
     ])
@@ -125,6 +163,11 @@ def engine_status():
 
 def save_key(key):
     _session["meshy_key"] = key.strip()
+    return engine_status()
+
+
+def save_tripo_key(key):
+    _session["tripo_key"] = key.strip()
     return engine_status()
 
 
@@ -237,6 +280,50 @@ def build_ui() -> gr.Blocks:
                         d_paint, d_pack, d_cname, d_cphone, d_consent],
                        [d_render, d_3d, d_guide, d_files, d_quote, d_log])
 
+        with gr.Tab("♚ Royal Chess"):
+            gr.Markdown("A person's **3D head** becomes a King, Queen or Bishop chess piece "
+                        "(crown/tiara/mitre fitted to the head, royal bust, chess pedestal). "
+                        "See `docs/royal-chess.md`.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    r_source = gr.Radio(ROYAL_SOURCES, value=ROYAL_SOURCES[0], label="Head from")
+                    r_model = gr.File(label="Head model from the Tripo app (template: 3D Print)",
+                                      file_types=[".glb", ".gltf", ".obj", ".stl"], type="filepath")
+                    r_photo = gr.Image(label="Or: clear front photo (uses Tripo API credits)",
+                                       type="filepath", height=240)
+                    with gr.Row():
+                        r_piece = gr.Radio(list(ROYAL_PIECES), value="King", label="Piece")
+                        r_size = gr.Radio(list(royal.SIZES), value=list(royal.SIZES)[1], label="Size")
+                    r_quality = gr.Radio(["preview", "final"], value="preview", label="Quality",
+                                         info="preview ≈ 15 s for checking | final ≈ 3-6 min, "
+                                              "full beard/eye detail for printing")
+                    with gr.Row():
+                        r_finish = gr.Dropdown(ROYAL_FINISHES, value="bronze", label="Finish")
+                        r_pack = gr.Dropdown(ROYAL_PACKAGING, value="velvet box", label="Packaging")
+                    with gr.Accordion("Adjust (only if the automatic result looks wrong)", open=False):
+                        r_turn = gr.Radio(royal.TURNS, value="auto", label="Turn head (face direction)")
+                        r_autoneck = gr.Checkbox(value=True, label="Automatic neck cut")
+                        r_neck = gr.Slider(0.02, 0.5, value=0.15, step=0.01,
+                                           label="Neck cut (fraction of model height)")
+                        r_crown = gr.Slider(0.6, 0.95, value=0.77, step=0.01,
+                                            label="Crown / tiara / mitre height on the head")
+                    with gr.Accordion("Customer", open=True):
+                        r_cname = gr.Textbox(label="Customer name")
+                        r_cphone = gr.Textbox(label="Phone / WhatsApp")
+                        r_consent = gr.Checkbox(label="Customer agrees we use this photo/model only for "
+                                                "their order (and, for the API, that it is sent to Tripo)")
+                    r_go = gr.Button("Make chess piece", variant="primary")
+                with gr.Column(scale=1):
+                    r_render = gr.Image(label="Preview", height=440)
+                    r_3d = gr.Model3D(label="3D preview", height=360)
+                    r_files = gr.File(label="Downloads (STL for the printer)", file_count="multiple")
+                    r_quote = gr.Markdown()
+                    r_log = gr.Markdown()
+            r_go.click(run_royal,
+                       [r_source, r_model, r_photo, r_piece, r_size, r_quality, r_finish, r_pack, r_turn,
+                        r_autoneck, r_neck, r_crown, r_cname, r_cphone, r_consent],
+                       [r_render, r_3d, r_files, r_quote, r_log])
+
         with gr.Tab("📋 Orders"):
             o_table = gr.Dataframe(headers=ORDER_COLS, value=order_table, interactive=False,
                                    wrap=True)
@@ -256,6 +343,11 @@ def build_ui() -> gr.Blocks:
                                    value=_session["meshy_key"])
                 s_save_key = gr.Button("Use key")
             s_save_key.click(save_key, s_key, s_status)
+            with gr.Row():
+                s_tkey = gr.Textbox(label="Tripo API key (kept in memory only; or put TRIPO_API_KEY=... "
+                                          "in the .env file)", type="password", value=_session["tripo_key"])
+                s_save_tkey = gr.Button("Use Tripo key")
+            s_save_tkey.click(save_tripo_key, s_tkey, s_status)
             gr.Markdown("### Prices & material costs (`config/pricing.json`)")
             s_prices = gr.Code(value=load_prices(), language="json", lines=30)
             s_save = gr.Button("Save prices")

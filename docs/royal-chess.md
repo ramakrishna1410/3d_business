@@ -9,6 +9,27 @@ photo ──(Tripo)──> 3D head ──(app: Royal Chess tab)──> King / Qu
                                                        + preview + quote
 ```
 
+## 0. Check the photo first (free)
+
+Tripo only gets the likeness right when the face is **big, sharp, evenly lit and
+looking at the camera**. Never put a ChatGPT/design image into Tripo - the face
+in it is too small (about 100 px), so Tripo invents a generic face.
+
+In the Royal Chess tab open **Check photo (free)** and press the button. The app
+checks the photo offline (no credits) and tells you:
+
+| Result | Meaning |
+|---|---|
+| ✅ good | one face, 220+ px wide, sharp, evenly lit, straight - use it |
+| ⚠️ warning | usable, but e.g. 2 faces, slightly small, blurry, side light, turned/tilted head |
+| ❌ bad | no face, face under 150 px, or too dark - ask the customer for a better photo |
+
+It also makes the **Tripo-ready close-up**: a square 1024 px head-and-shoulders
+crop on a white background. Download it and upload *that* to the Tripo app. The
+"Photo -> Tripo API" route runs the same check automatically, refuses a bad
+photo before any credits are spent, and sends the close-up instead of the full
+photo.
+
 ## 1. Get the 3D head
 
 The head must have the details **carved into the shape** (beard, eyebrows, eyes,
@@ -49,6 +70,7 @@ Choose **"Photo -> Tripo API"** in the tab. The app uploads the photo, asks for
 | Setting | Use |
 |---|---|
 | Piece | King (dad) · Queen (mom) · Bishop (child) |
+| Design | **smooth statue** (clean crown with ball-tipped points and a cross, plain mantle, stand-up collar, stepped pedestal) · **classic royal** (ermine collar, chain of office, pearls) |
 | Size | chess set (King ~80 mm) · couple gift (King ~113 mm) |
 | Quality | **preview** (~15 s) to check · **final** (2-6 min, 0.1 mm detail, needs ~4 GB free RAM) for printing |
 | Adjust | only if needed: turn the head, move the neck cut, move the crown up/down |
@@ -56,7 +78,7 @@ Choose **"Photo -> Tripo API"** in the tab. The app uploads the photo, asks for
 The app automatically turns the head upright and facing front, cuts it at the neck
 (keeping a beard), turns the AI model (often thousands of loose bits) into one
 solid, fits the crown/tiara/mitre to the actual head shape, adds the royal bust
-(ermine collar + chain, pearls, or a simple collar + cross) and the pedestal, and
+(smooth mantle and collar, or in *classic royal* ermine + chain / pearls / cross) and the pedestal, and
 writes **one watertight STL**.
 
 Outputs in the order folder: `..._king.stl`, preview PNG, 3D preview, the head

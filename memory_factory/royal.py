@@ -39,6 +39,7 @@ PIECES = {"king": ("King", 1.0), "queen": ("Queen", 0.94), "bishop": ("Bishop (c
 SIZES = {"chess set (King ~80 mm)": 1.0, "couple gift (King ~113 mm)": 1.4}
 QUALITY_MM = {"preview": 0.25, "final": 0.1}       # voxel size on the printed piece
 TURNS = ["auto", "0°", "90°", "180°", "270°"]
+STYLES = ["smooth statue", "classic royal"]   # smooth: clean crown, folded mantle, stand-up collar
 FINISH_COLOURS = {"bronze": (176, 120, 70), "gold": (222, 178, 92), "statue white": (232, 230, 224),
                   "raw resin": (200, 200, 205)}
 
@@ -53,6 +54,7 @@ BASE_R = 17.0
 @dataclass
 class RoyalSettings:
     piece: str = "king"                               # king / queen / bishop
+    style: str = "smooth statue"                      # see STYLES
     size: str = "couple gift (King ~113 mm)"
     quality: str = "preview"                          # preview / final
     turn: str = "auto"
@@ -313,6 +315,33 @@ def add_crown(g, solid, z_band):
         g.add(_sphere(g, (px, py, z_band + 1.8), 0.65))
 
 
+def add_crown_smooth(g, solid, z_band):
+    """Statue crown: smooth band with rims, tall ball-tipped points, orb and cross pattee."""
+    sec, dout, din, cx, cy = _section(solid, g, z_band, 3.0)
+    X, Y, Z = g.xyz()
+    hb, t, ph = 3.0, 1.15, 4.4
+    th = np.arctan2(X - cx, -(Y - cy))
+    tri = np.clip(1 - 2 * np.abs((th * 8 / (2 * np.pi) + 0.5) % 1.0 - 0.5), 0, 1)
+    d2 = (dout - din)[:, :, None]
+    ztop = z_band + hb + ph * tri ** 1.15
+    g.add(np.minimum(np.minimum(d2 + 0.6, 0.25 + t - d2), np.minimum(Z - z_band, ztop - Z)))
+    for zr in (z_band + 0.45, z_band + hb - 0.35):                     # rim mouldings
+        g.add(np.minimum(0.55 - np.abs(d2 - (0.25 + t)), 0.5 - np.abs(Z - zr)))
+    capz = z_band + hb + 1.8 * np.sqrt(np.clip(din / max(din.max(), 1e-6), 0, 1))[:, :, None]
+    inside = np.where(sec, 1.0, -1.0)[:, :, None]
+    g.add(np.minimum(np.minimum(capz - Z, inside), Z - (z_band + 1.0)))
+    for k in range(8):                                                   # balls on the points
+        px, py = _point_at(g, dout, cx, cy, k * 2 * np.pi / 8, 0.25 + t * 0.5)
+        g.add(_sphere(g, (px, py, z_band + hb + ph + 0.55), 1.05))
+    top = z_band + hb + 1.8
+    g.add(_sphere(g, (cx, cy, top + 1.0), 1.6))                          # orb
+    zc = top + 5.2                                                       # cross pattee
+    g.add(_box(g, (1.5, 1.5, 6.2), (cx, cy, zc)))
+    g.add(_box(g, (5.6, 1.5, 1.5), (cx, cy, zc + 0.6)))
+    for dx, dz, w, h in ((0, 3.1, 2.6, 0.9), (0, -1.9, 2.4, 0.9), (2.8, 0.6, 0.9, 2.6), (-2.8, 0.6, 0.9, 2.6)):
+        g.add(_box(g, (w, 1.5, h), (cx + dx, cy, zc + dz)))
+
+
 def add_tiara(g, solid, z_band):
     sec, dout, din, cx, cy = _section(solid, g, z_band, 2.0)
     X, Y, Z = g.xyz()
@@ -353,19 +382,41 @@ def add_mitre(g, solid, z_band):
 
 
 # ---------------------------------------------------------------- bust + pedestal
-def body(piece: str, pitch: float) -> object:
+def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
     A, B, C, n, yc0 = (TORSO[k] for k in ("A", "B", "C", "n", "yc"))
     g = Grid((-A - 2, -19, 0), (A + 2, 19, Z_NECK + 6), pitch)
     X, Y, Z = g.xyz()
     R = BASE_R
-    prof = [(0, 0), (R, 0), (R, 3), (0.92 * R, 4.5), (0.85 * R, 6.5), (0.62 * R, 8.5), (0.42 * R, 12),
-            (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 4), (0.46 * R, PED_TOP - 2.5),
-            (0.46 * R, PED_TOP - 1), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
+    smooth = style == "smooth statue"
+    if smooth:      # stepped base with rounded rings, slim stem, double ring under the bust
+        prof = [(0, 0), (R, 0), (R, 2.4), (0.95 * R, 3.0), (0.95 * R, 4.4), (0.86 * R, 5.0),
+                (0.86 * R, 6.6), (0.72 * R, 7.4), (0.68 * R, 9.0), (0.55 * R, 10.0), (0.42 * R, 12.5),
+                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 5.5), (0.46 * R, PED_TOP - 4.4),
+                (0.46 * R, PED_TOP - 1.0), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
+        for rr, zr, tube in ((0.97 * R, 1.6, 1.0), (0.9 * R, 4.7, 0.85), (0.72 * R, 8.0, 0.8),
+                             (0.47 * R, PED_TOP - 3.4, 0.95), (0.48 * R, PED_TOP - 1.0, 0.95)):
+            g.add(_ring(g, (0, 0, zr), rr, rr, tube))
+    else:
+        prof = [(0, 0), (R, 0), (R, 3), (0.92 * R, 4.5), (0.85 * R, 6.5), (0.62 * R, 8.5), (0.42 * R, 12),
+                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 4), (0.46 * R, PED_TOP - 2.5),
+                (0.46 * R, PED_TOP - 1), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
     g.add(_revolve(g, prof))
     zb = PED_TOP - 0.5
     zc = zb + 3.5
     q = (np.abs(X / A) ** n + np.abs((Y - yc0) / B) ** n + np.abs((Z - zc) / C) ** n) ** (1 / n)
     sd = np.minimum((1 - q) * B, Z - (zb + 0.04 * X ** 2))       # classical bust truncation
+    if smooth:
+        # mantle draped over the shoulders: folds fanning out from the collar, smooth chest panel
+        front = np.clip(-(Y - yc0) / B, 0, 1)
+        phi = np.arctan2(X, (zc + C + 3.0) - Z)
+        rr = np.hypot(X, (zc + C + 3.0) - Z)
+        fade = np.clip((rr - 8.0) / 5.0, 0, 1)                         # folds start below the collar
+        folds = 0.6 * fade * (0.5 + 0.5 * np.cos(9 * phi)) ** 1.5      # a few broad, soft folds
+        panel = np.clip((np.abs(X) - 5.2) / 0.8, 0, 1)                 # no folds on the chest panel
+        lapel = np.clip(0.75 - np.abs(np.abs(X) - 5.6) * 1.2, 0, 0.75) * front
+        placket = np.clip(0.45 - np.abs(np.abs(X) - 1.1) * 1.5, 0, 0.45) * front
+        sd = np.minimum(sd + folds * panel + lapel + placket * (Z > zb + 2),
+                        Z - (zb + 0.04 * X ** 2))
     g.add(np.minimum(sd, (A - 1.5) - np.abs(X)))
 
     def chest_y(x, z):
@@ -374,7 +425,27 @@ def body(piece: str, pitch: float) -> object:
 
     g.add(_capsule(g, (0, 1.6, zc + 4), (0, 1.0, Z_NECK + 6), 5.4))          # neck plug
     zn = Z_NECK + 0.6
-    if piece == "king":            # ermine collar + chain of office with a medallion
+    if smooth:                     # stand-up collar (hides the neck cut), open at the front
+        ax, ay, t = 8.2, 8.8, 1.3
+        rho = np.hypot(X / ax, (Y + 0.2) / ay)
+        dr = (rho - 1) * (ax + ay) / 2
+        zt = Z_NECK + 2.8 + 0.12 * (Y + 0.2)                         # a little higher at the back
+        shell = np.minimum(t / 2 - np.abs(dr + t / 2), np.minimum(Z - (Z_NECK - 3.5), zt - Z))
+        notch = np.maximum(np.abs(X) - (0.25 + 0.45 * (Z - Z_NECK)), Y + 4)   # small V at the front
+        g.add(np.minimum(shell, np.maximum(notch, Z_NECK - 0.5 - Z)))
+        g.add(_ring(g, (0, -0.2, Z_NECK + 2.6), ax - 0.2, ay - 0.2, 0.75, tilt=0.12))   # rolled top edge
+        # fill between the neck and the collar so there is no gap (or resin trap) inside it
+        g.add(np.minimum(np.minimum(-dr, Z_NECK + 1.0 - Z), Z - (Z_NECK - 3.5)))
+        if piece == "queen":       # simple pearl necklace below the collar
+            for tt in np.linspace(-1.1, 1.1, 17):
+                x, z = 9.5 * np.sin(tt), zn - 4.2 - 4.5 * np.cos(tt) ** 2
+                g.add(_sphere(g, (x, chest_y(x, z) + 0.2, z), 0.75))
+        elif piece == "bishop":    # small cross on the chest
+            zx = zn - 9.0
+            yx = chest_y(0, zx) - 0.3
+            g.add(_box(g, (1.0, 1.2, 5.0), (0, yx, zx)))
+            g.add(_box(g, (3.4, 1.2, 1.0), (0, yx, zx + 0.9)))
+    elif piece == "king":          # ermine collar + chain of office with a medallion
         g.add(_ring(g, (0, 0.6, zn), 8.6, 8.0, 2.4, tilt=0.18))
         for tt in np.linspace(-1.2, 1.2, 25):
             x, z = 12.5 * np.sin(tt), zn - 3.0 - 6.5 * np.cos(tt) ** 2
@@ -456,12 +527,13 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     z_band = Z_NECK + float(s.crown) * HEAD_H
     if progress:
         progress(0.6, desc=f"Fitting the {PIECES[s.piece][0].lower()} regalia...")
-    {"king": add_crown, "queen": add_tiara, "bishop": add_mitre}[s.piece](g, solid, z_band)
+    crown = add_crown_smooth if s.style == "smooth statue" else add_crown
+    {"king": crown, "queen": add_tiara, "bishop": add_mitre}[s.piece](g, solid, z_band)
     head = g.to_trimesh(blur=0)
     del g, solid
     if progress:
         progress(0.75, desc="Bust and pedestal...")
-    torso = body(s.piece, max(pitch * 2, 0.14))
+    torso = body(s.piece, max(pitch * 2, 0.14), s.style)
     try:
         piece = _from_manifold(_to_manifold(head) + _to_manifold(torso))
     except Exception as exc:  # pragma: no cover - fallback: overlapping shells

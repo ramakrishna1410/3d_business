@@ -16,10 +16,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
+from pathlib import Path
 
 import gradio as gr
 
-from memory_factory import depth, drawing, imaging, medallion, orders, royal
+from memory_factory import depth, drawing, imaging, medallion, orders, photo_check, royal
 from memory_factory.config import PRICING_FILE, load_local_env, load_pricing
 from memory_factory.render import MATERIALS
 
@@ -94,20 +96,42 @@ ROYAL_PIECES = {"King": "king", "Queen": "queen", "Bishop (child)": "bishop"}
 ROYAL_SOURCES = ["Tripo 3D file (GLB/OBJ/STL)", "Photo -> Tripo API (automatic)"]
 
 
-def run_royal(source, model_file, photo, piece, size, quality, finish, packaging, turn, auto_neck,
-              neck, crown, cust_name, cust_phone, consent, progress=gr.Progress()):
+def _save_crop(check) -> str | None:
+    if check.crop is None:
+        return None
+    path = Path(tempfile.mkdtemp(prefix="tripo_crop_")) / "for_tripo.jpg"
+    check.crop.save(path, quality=95)
+    return str(path)
+
+
+def check_royal_photo(photo):
+    """Free, offline check of the customer photo + the Tripo-ready close-up."""
+    if not photo:
+        raise gr.Error("Upload the customer's photo first.")
+    check = photo_check.check_photo(photo)
+    crop = _save_crop(check)
+    return check.as_markdown(), crop, crop
+
+
+def run_royal(source, model_file, photo, piece, style, size, quality, finish, packaging, turn,
+              auto_neck, neck, crown, cust_name, cust_phone, consent, progress=gr.Progress()):
     customer = _customer(cust_name, cust_phone, consent)
     if source == ROYAL_SOURCES[1]:
         if not photo:
             raise gr.Error("Upload a clear front photo (face visible, no cap or sunglasses).")
         if not _session["tripo_key"]:
             raise gr.Error("Add your Tripo API key in the Settings tab first.")
-        src = photo
+        check = photo_check.check_photo(photo)        # never spend credits on a bad photo
+        if not check.ok:
+            raise gr.Error("Photo check failed - no Tripo credits used. "
+                           + " ".join(check.messages))
+        src = _save_crop(check) or photo              # send the face close-up, not the whole photo
     else:
         if not model_file:
             raise gr.Error("Upload the head model exported from Tripo (GLB, OBJ or STL).")
         src = model_file
-    s = royal.RoyalSettings(piece=ROYAL_PIECES[piece], size=size, quality=quality, turn=turn,
+    s = royal.RoyalSettings(piece=ROYAL_PIECES[piece], style=style, size=size, quality=quality,
+                            turn=turn,
                             neck=None if auto_neck else neck, crown=crown, finish=finish,
                             packaging=packaging)
     progress(0.02, desc="Starting...")
@@ -291,9 +315,19 @@ def build_ui() -> gr.Blocks:
                                       file_types=[".glb", ".gltf", ".obj", ".stl"], type="filepath")
                     r_photo = gr.Image(label="Or: clear front photo (uses Tripo API credits)",
                                        type="filepath", height=240)
+                    with gr.Accordion("Check photo (free - do this before using Tripo)", open=False):
+                        r_check_btn = gr.Button("Check photo + make Tripo close-up")
+                        r_check = gr.Markdown()
+                        with gr.Row():
+                            r_crop = gr.Image(label="Tripo-ready close-up", height=220,
+                                              interactive=False)
+                            r_crop_file = gr.File(label="Download (upload this to the Tripo app)")
                     with gr.Row():
                         r_piece = gr.Radio(list(ROYAL_PIECES), value="King", label="Piece")
                         r_size = gr.Radio(list(royal.SIZES), value=list(royal.SIZES)[1], label="Size")
+                    r_style = gr.Radio(royal.STYLES, value=royal.STYLES[0], label="Design",
+                                       info="smooth statue: clean crown with a cross, plain mantle | "
+                                            "classic royal: ermine collar, chain of office")
                     r_quality = gr.Radio(["preview", "final"], value="preview", label="Quality",
                                          info="preview ≈ 15 s for checking | final ≈ 3-6 min, "
                                               "full beard/eye detail for printing")
@@ -319,8 +353,9 @@ def build_ui() -> gr.Blocks:
                     r_files = gr.File(label="Downloads (STL for the printer)", file_count="multiple")
                     r_quote = gr.Markdown()
                     r_log = gr.Markdown()
+            r_check_btn.click(check_royal_photo, r_photo, [r_check, r_crop, r_crop_file])
             r_go.click(run_royal,
-                       [r_source, r_model, r_photo, r_piece, r_size, r_quality, r_finish, r_pack, r_turn,
+                       [r_source, r_model, r_photo, r_piece, r_style, r_size, r_quality, r_finish, r_pack, r_turn,
                         r_autoneck, r_neck, r_crown, r_cname, r_cphone, r_consent],
                        [r_render, r_3d, r_files, r_quote, r_log])
 

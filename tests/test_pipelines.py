@@ -223,13 +223,14 @@ def test_royal_finds_the_face(tmp_path, turn):
     assert nose[1] < -9 and abs(nose[0]) < 3      # nose ends up pointing to -y
 
 
+@pytest.mark.parametrize("style", ["smooth statue", "classic royal"])
 @pytest.mark.parametrize("piece", ["king", "queen", "bishop"])
-def test_royal_piece_is_one_watertight_solid(tmp_path, piece):
+def test_royal_piece_is_one_watertight_solid(tmp_path, piece, style):
     pytest.importorskip("manifold3d")
     pytest.importorskip("skimage")
     from memory_factory import royal
 
-    s = royal.RoyalSettings(piece=piece, size=list(royal.SIZES)[0], quality="preview")
+    s = royal.RoyalSettings(piece=piece, style=style, size=list(royal.SIZES)[0], quality="preview")
     log = []
     p, _ = royal.build_piece(synthetic_bust(tmp_path), s, log)
     assert p.is_watertight
@@ -306,3 +307,68 @@ def test_tripo_errors_are_readable(tmp_path):
     with pytest.raises(tripo.TripoError, match="API key rejected"):
         tripo.upload_image(tmp_path / "x.jpg" if (tmp_path / "x.jpg").write_bytes(b"1") else None,
                            "sk-bad", session=Bad())
+
+
+# ---------------------------------------------------------------- photo check (before Tripo)
+def portrait(face=300, level=0.55, sharp=True, size=(900, 1100)):
+    """Grey photo with a textured 'face' square at (300, 250)."""
+    rng = np.random.default_rng(1)
+    a = np.full(size[::-1], 0.6)
+    tex = rng.random((face, face)) if sharp else np.tile(np.linspace(0, 1, face), (face, 1))
+    a[250:250 + face, 300:300 + face] = level + 0.3 * (tex - 0.5)
+    return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8)).convert("RGB")
+
+
+@pytest.fixture
+def fake_detector(monkeypatch):
+    """Detection is stubbed: the tests check the rules, not OpenCV."""
+    from memory_factory import photo_check
+
+    state = {"faces": [(300, 250, 300, 300)]}
+    monkeypatch.setattr(imaging, "detect_faces", lambda img, mask=None: state["faces"])
+    monkeypatch.setattr(photo_check, "_eyes",
+                        lambda gray, f: [(f[2] * 0.3, f[3] * 0.4), (f[2] * 0.7, f[3] * 0.4)])
+    return state
+
+
+def test_photo_check_good_photo_gives_tripo_crop(fake_detector):
+    from memory_factory import photo_check
+
+    c = photo_check.check_photo(portrait(), white_background=False)
+    assert c.level == "good" and c.ok and c.faces == 1 and c.face_px == 300
+    assert c.crop.size == (1024, 1024)
+    assert "Photo is good" in c.as_markdown()
+
+
+def test_photo_check_no_face_is_bad(fake_detector):
+    from memory_factory import photo_check
+
+    fake_detector["faces"] = []
+    c = photo_check.check_photo(portrait(), white_background=False)
+    assert not c.ok and c.crop is None
+
+
+def test_photo_check_small_face_is_bad(fake_detector):
+    from memory_factory import photo_check
+
+    fake_detector["faces"] = [(300, 250, 100, 100)]
+    c = photo_check.check_photo(portrait(face=100), white_background=False)
+    assert c.level == "bad" and "too small" in " ".join(c.messages)
+
+
+def test_photo_check_dark_photo_is_bad(fake_detector):
+    from memory_factory import photo_check
+
+    c = photo_check.check_photo(portrait(level=0.12), white_background=False)
+    assert c.level == "bad" and "dark" in " ".join(c.messages)
+
+
+def test_photo_check_warnings(fake_detector):
+    from memory_factory import photo_check
+
+    fake_detector["faces"] = [(300, 250, 300, 300), (650, 300, 160, 160)]
+    c = photo_check.check_photo(portrait(), white_background=False)
+    assert c.level == "warning" and c.ok and c.faces == 2
+    fake_detector["faces"] = [(300, 250, 300, 300)]
+    c = photo_check.check_photo(portrait(sharp=False), white_background=False)
+    assert c.level == "warning" and "blurry" in " ".join(c.messages)

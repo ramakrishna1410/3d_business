@@ -49,6 +49,7 @@ Z_NECK = 47.0           # where the neck cut sits on the piece
 PED_TOP = 34.0
 TORSO = dict(A=19.0, B=8.0, C=12.0, n=2.6, yc=1.5)
 BASE_R = 17.0
+COLLAR = (8.2, 8.8, -0.2)   # neck opening of the bust: half-width x, half-depth y, centre y
 
 
 @dataclass
@@ -60,6 +61,7 @@ class RoyalSettings:
     turn: str = "auto"
     neck: float | None = None                         # neck cut, fraction of model height
     crown: float = 0.77                               # crown band, fraction of the head height
+    tidy_hair: bool = True                            # trim loose strands / hair hanging below the neck
     finish: str = "bronze"
     packaging: str = "velvet box"
 
@@ -263,6 +265,31 @@ def solid_head(v, faces, pitch, lo, hi, z_cut, log) -> tuple[np.ndarray, Grid]:
     return solid, g
 
 
+def tidy_hair(solid, g, log) -> np.ndarray:
+    """Make long or loose hair printable: hair hanging below the jaw is shaped into a smooth
+    taper that ends inside the collar, and thin loose strands (fragile in resin) are removed.
+    The face and beard (front) are never touched."""
+    ax, ay, yc = COLLAR[0] + 0.4, COLLAR[1] + 0.4, COLLAR[2]
+    k_top = int(np.searchsorted(g.z, Z_NECK + 0.5 * HEAD_H))
+    back = (g.y > -3.0)[None, :]                         # behind the front of the neck
+    n0 = int(solid.sum())
+    for k in range(k_top):
+        grow = 1 + 0.09 * max(0.0, g.z[k] - Z_NECK)
+        out = np.hypot(g.x[:, None] / (ax * grow), (g.y[None, :] - yc) / (ay * grow)) > 1
+        solid[:, :, k] &= ~(out & back)
+    r = max(1, int(round(0.3 / g.p)))
+    blk = solid[:, :, :k_top]
+    ball = ndimage.generate_binary_structure(3, 1)
+    opened = ndimage.binary_opening(blk, ball, iterations=r)
+    solid[:, :, :k_top] = np.where(back[:, :, None], opened, blk)
+    lab, n = ndimage.label(solid)
+    if n > 1:
+        solid = lab == (int(np.argmax(ndimage.sum(solid, lab, range(1, n + 1)))) + 1)
+    log.append(f"Tidy hair: {100 * (1 - solid.sum() / max(n0, 1)):.1f}% of the head trimmed "
+               "(loose strands, hair below the neck)")
+    return solid
+
+
 def _section(solid, g, z_band, depth_mm=2.0):
     """Smoothed horizontal section of the head around the band height."""
     kb = int(np.argmin(np.abs(g.z - z_band)))
@@ -342,6 +369,30 @@ def add_crown_smooth(g, solid, z_band):
         g.add(_box(g, (w, 1.5, h), (cx + dx, cy, zc + dz)))
 
 
+def add_tiara_smooth(g, solid, z_band):
+    """Statue coronet: full smooth band, 12 rounded points (tall/short) with pearls,
+    a raised front peak and a jewel at the front."""
+    sec, dout, din, cx, cy = _section(solid, g, z_band, 2.5)
+    X, Y, Z = g.xyz()
+    hb, t = 1.9, 1.0
+    th = np.arctan2(X - cx, -(Y - cy))
+    w = 0.5 + 0.5 * np.cos(12 * th)                                   # 12 points, one at the front
+    tall = 0.5 + 0.5 * np.cos(6 * th)                                  # alternate tall / short
+    peak = np.clip(np.cos(th), 0, 1) ** 14                             # front centre
+    ztop = z_band + hb + (1.3 + 1.7 * tall + 2.0 * peak) * w ** 2.5
+    d2 = (dout - din)[:, :, None]
+    g.add(np.minimum(np.minimum(d2 + 0.5, 0.2 + t - d2), np.minimum(Z - z_band, ztop - Z)))
+    g.add(np.minimum(0.5 - np.abs(d2 - (0.2 + t)), 0.45 - np.abs(Z - (z_band + 0.4))))   # rim
+    for k in range(12):
+        a = k * 2 * np.pi / 12
+        h = 1.3 + (1.7 if k % 2 == 0 else 0.0) + (2.0 if k == 0 else 0.0)
+        r = 1.0 if k == 0 else (0.7 if k % 2 == 0 else 0.55)
+        px, py = _point_at(g, dout, cx, cy, a, 0.2 + t * 0.5)
+        g.add(_sphere(g, (px, py, z_band + hb + h + r * 0.5), r))
+    px, py = _point_at(g, dout, cx, cy, 0.0, 0.2 + t)
+    g.add(_sphere(g, (px, py - 0.1, z_band + hb * 0.55), 0.85))           # jewel on the front
+
+
 def add_tiara(g, solid, z_band):
     sec, dout, din, cx, cy = _section(solid, g, z_band, 2.0)
     X, Y, Z = g.xyz()
@@ -405,7 +456,15 @@ def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
     zc = zb + 3.5
     q = (np.abs(X / A) ** n + np.abs((Y - yc0) / B) ** n + np.abs((Z - zc) / C) ** n) ** (1 / n)
     sd = np.minimum((1 - q) * B, Z - (zb + 0.04 * X ** 2))       # classical bust truncation
-    if smooth:
+    zn = Z_NECK + 0.6
+    if smooth and piece == "queen":
+        # gown: smooth bodice with a rounded neckline and piping; bare chest above it
+        front = np.clip(-(Y - yc0) / B * 1.6, 0, 1)
+        zline = zn - 2.6 - 6.0 * front * np.clip(1 - (X / 10.5) ** 2, 0, 1)
+        bodice = np.minimum(sd + 0.45, zline - Z)
+        piping = np.minimum(sd + 0.85, 0.5 - np.abs(Z - zline))
+        sd = np.maximum(sd, np.maximum(bodice, piping))
+    elif smooth:
         # mantle draped over the shoulders: folds fanning out from the collar, smooth chest panel
         front = np.clip(-(Y - yc0) / B, 0, 1)
         phi = np.arctan2(X, (zc + C + 3.0) - Z)
@@ -424,9 +483,22 @@ def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
         return yc0 - B * np.clip(r, 0, 1) ** (1 / n)
 
     g.add(_capsule(g, (0, 1.6, zc + 4), (0, 1.0, Z_NECK + 6), 5.4))          # neck plug
-    zn = Z_NECK + 0.6
-    if smooth:                     # stand-up collar (hides the neck cut), open at the front
-        ax, ay, t = 8.2, 8.8, 1.3
+    if smooth and piece == "queen":
+        ax, ay, yc = COLLAR
+        rho = np.hypot(X / ax, (Y - yc) / ay)
+        dr = (rho - 1) * (ax + ay) / 2
+        g.add(np.minimum(np.minimum(-dr, Z_NECK + 0.6 - Z), Z - (Z_NECK - 4)))   # closes the neck cut
+        g.add(_ring(g, (0, yc, Z_NECK + 0.3), ax, ay, 0.9, tilt=0.1))             # low band
+        for tt in np.linspace(0, 2 * np.pi, 28, endpoint=False):                 # pearl choker on it
+            y = yc - ay * np.cos(tt)
+            g.add(_sphere(g, (ax * np.sin(tt), y, Z_NECK + 1.3 + 0.1 * (y - yc)), 0.95))
+        for tt in np.linspace(-1.05, 1.05, 15):                                   # pearl necklace
+            x, z = 7.6 * np.sin(tt), zn - 2.8 - 3.6 * np.cos(tt) ** 2
+            g.add(_sphere(g, (x, chest_y(x, z) + 0.2, z), 0.7))
+        zp = zn - 2.8 - 3.6 - 1.6
+        g.add(_sphere(g, (0, chest_y(0, zp) + 0.05, zp), 1.15))                  # drop pearl
+    elif smooth:                   # stand-up collar (hides the neck cut), open at the front
+        ax, ay, t = COLLAR[0], COLLAR[1], 1.3
         rho = np.hypot(X / ax, (Y + 0.2) / ay)
         dr = (rho - 1) * (ax + ay) / 2
         zt = Z_NECK + 2.8 + 0.12 * (Y + 0.2)                         # a little higher at the back
@@ -436,11 +508,7 @@ def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
         g.add(_ring(g, (0, -0.2, Z_NECK + 2.6), ax - 0.2, ay - 0.2, 0.75, tilt=0.12))   # rolled top edge
         # fill between the neck and the collar so there is no gap (or resin trap) inside it
         g.add(np.minimum(np.minimum(-dr, Z_NECK + 1.0 - Z), Z - (Z_NECK - 3.5)))
-        if piece == "queen":       # simple pearl necklace below the collar
-            for tt in np.linspace(-1.1, 1.1, 17):
-                x, z = 9.5 * np.sin(tt), zn - 4.2 - 4.5 * np.cos(tt) ** 2
-                g.add(_sphere(g, (x, chest_y(x, z) + 0.2, z), 0.75))
-        elif piece == "bishop":    # small cross on the chest
+        if piece == "bishop":      # small cross on the chest
             zx = zn - 9.0
             yx = chest_y(0, zx) - 0.3
             g.add(_box(g, (1.0, 1.2, 5.0), (0, yx, zx)))
@@ -523,12 +591,16 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     lo = np.array([v[:, 0].min() - 4, v[:, 1].min() - 4, Z_NECK - 1])
     hi = np.array([v[:, 0].max() + 4, v[:, 1].max() + 4, Z_NECK + HEAD_H + 16])
     solid, g = solid_head(v, np.asarray(m.faces), pitch, lo, hi, Z_NECK, log)
+    if s.tidy_hair:
+        solid = tidy_hair(solid, g, log)
     g.f = ndimage.gaussian_filter(solid.astype(np.float32), 0.6)
     z_band = Z_NECK + float(s.crown) * HEAD_H
     if progress:
         progress(0.6, desc=f"Fitting the {PIECES[s.piece][0].lower()} regalia...")
-    crown = add_crown_smooth if s.style == "smooth statue" else add_crown
-    {"king": crown, "queen": add_tiara, "bishop": add_mitre}[s.piece](g, solid, z_band)
+    smooth = s.style == "smooth statue"
+    {"king": add_crown_smooth if smooth else add_crown,
+     "queen": add_tiara_smooth if smooth else add_tiara,
+     "bishop": add_mitre}[s.piece](g, solid, z_band)
     head = g.to_trimesh(blur=0)
     del g, solid
     if progress:
@@ -550,12 +622,15 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     return out, dict(neck=lm["neck_frac"])
 
 
-def render_image(t, colour, path: Path) -> Path:
-    small = simplify(t.copy(), 70_000, 0.05)
-    hgt = small.bounds[1][2]
+def render_image(t, colour, path: Path, size_scale: float = 1.0) -> Path:
+    """Preview picture. The camera depends only on the Size setting (not on the piece), so
+    King, Queen and Bishop pictures are at the same scale and can be compared directly."""
+    small = simplify(t.copy(), 250_000, 0.02)
+    hgt = 82.0 * size_scale                     # King incl. cross at this size
     base = mesh_mod.box((hgt * 0.75, hgt * 0.75, hgt * 0.08), (-hgt * 0.375, -hgt * 0.375, -hgt * 0.08))
     items = [render3d.Item(base.vertices, base.faces, (35, 32, 30), 0.4, layer=0),
-             render3d.Item(np.asarray(small.vertices), np.asarray(small.faces), colour, 0.45)]
+             render3d.Item(np.asarray(small.vertices), np.asarray(small.faces), colour, 0.45,
+                           smooth=True)]
     img = render3d.render(items, eye=(hgt * 0.7, -hgt * 2.0, hgt * 1.0), target=(0, 0, hgt * 0.52),
                           size=(800, 1000), fov_deg=34)
     img.save(path)
@@ -586,7 +661,7 @@ def generate(source, s: RoyalSettings, customer: dict | None = None, api_key: st
                                      folder / f"{order_id}_{label}_preview.glb", color=colour)
     if progress:
         progress(0.95, desc="Rendering preview...")
-    img = render_image(piece, colour, folder / f"{order_id}_{label}.png")
+    img = render_image(piece, colour, folder / f"{order_id}_{label}.png", SIZES.get(s.size, 1.0))
     vol = float(abs(piece.volume)) if piece.is_watertight else 0.0
     hgt = float(piece.bounds[1][2])
     q = costing.quote_royal(vol, hgt, s.finish, s.packaging)

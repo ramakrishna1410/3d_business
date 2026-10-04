@@ -239,6 +239,25 @@ def test_royal_piece_is_one_watertight_solid(tmp_path, piece, style):
     assert abs(p.bounds[0][2]) < 0.5               # stands on the table
 
 
+def test_tidy_hair_removes_loose_strands_but_keeps_the_face():
+    from memory_factory import royal
+
+    g = royal.Grid((-16, -16, royal.Z_NECK - 1), (16, 16, royal.Z_NECK + 26), 0.25)
+    X, Y, Z = g.xyz()
+    zc = royal.Z_NECK + 12
+    head = np.hypot(np.hypot(X / 8, Y / 9), (Z - zc) / 12) <= 1
+    nose = np.hypot(np.hypot(X, Y + 9.6), Z - zc) <= 1.2
+    strand = (np.abs(X - 11) < 0.2) & (np.abs(Y - 2) < 0.2) & (Z < zc)        # 0.4 mm hair strand
+    hair = (np.hypot(X, Y - 6) < 6) & (Z < royal.Z_NECK + 3)                  # long hair behind the neck
+    ear_bridge = (np.abs(Y - 2) < 0.2) & (np.abs(X) < 11.2) & (np.abs(Z - zc) < 0.2)
+    solid = head | nose | strand | hair | ear_bridge
+    out = royal.tidy_hair(solid.copy(), g, [])
+    assert not out[(X > 10.5) & (Z < zc - 3) & np.broadcast_to(True, out.shape)].any()   # strand gone
+    assert out[nose & np.broadcast_to(True, out.shape)].mean() > 0.95                  # face kept
+    sl = out[:, :, np.searchsorted(g.z, royal.Z_NECK + 0.5)]
+    assert g.y[np.nonzero(sl)[1]].max() < royal.COLLAR[1] + 1.0       # hair ends inside the collar
+
+
 def test_royal_generate_end_to_end(tmp_path):
     pytest.importorskip("manifold3d")
     from memory_factory import royal

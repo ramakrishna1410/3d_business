@@ -21,6 +21,7 @@ class Item:
     shine: float = 0.3
     layer: int = 1   # lower layers are drawn first (e.g. 0 = table/board)
     face_colors: np.ndarray | None = None  # optional (n_faces, 3) per-face colours
+    smooth: bool = False   # shade from averaged vertex normals (no visible facets on organic shapes)
 
 
 def _look_at(eye, target, up=(0, 0, 1)):
@@ -50,6 +51,13 @@ def render(items: list[Item], eye, target, size=(1600, 1000), fov_deg=35.0,
         cen = tri.mean(axis=1)
         view = eye - cen
         facing = np.einsum("ij,ij->i", n, view) > 0
+        if it.smooth:      # area-weighted vertex normals, averaged back over each face
+            vn = np.zeros_like(it.vertices, dtype=float)
+            for j in range(3):
+                np.add.at(vn, it.faces[:, j], n * ln)
+            vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
+            sn = vn[it.faces].mean(axis=1)
+            n = sn / np.maximum(np.linalg.norm(sn, axis=1, keepdims=True), 1e-12)
         tri, n, cen = tri[facing], n[facing], cen[facing]
         fcol = it.face_colors[facing] if it.face_colors is not None else None
         cam = (tri - eye) @ rot.T                      # camera space, looking down -z

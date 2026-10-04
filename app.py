@@ -114,7 +114,7 @@ def check_royal_photo(photo):
 
 
 def run_royal(source, model_file, photo, piece, style, size, quality, finish, packaging, turn,
-              auto_neck, neck, crown, cust_name, cust_phone, consent, progress=gr.Progress()):
+              auto_neck, neck, crown, tidy, cust_name, cust_phone, consent, progress=gr.Progress()):
     customer = _customer(cust_name, cust_phone, consent)
     if source == ROYAL_SOURCES[1]:
         if not photo:
@@ -132,7 +132,7 @@ def run_royal(source, model_file, photo, piece, style, size, quality, finish, pa
         src = model_file
     s = royal.RoyalSettings(piece=ROYAL_PIECES[piece], style=style, size=size, quality=quality,
                             turn=turn,
-                            neck=None if auto_neck else neck, crown=crown, finish=finish,
+                            neck=None if auto_neck else neck, crown=crown, tidy_hair=tidy, finish=finish,
                             packaging=packaging)
     progress(0.02, desc="Starting...")
     try:
@@ -329,7 +329,7 @@ def build_ui() -> gr.Blocks:
                                        info="smooth statue: clean crown with a cross, plain mantle | "
                                             "classic royal: ermine collar, chain of office")
                     r_quality = gr.Radio(["preview", "final"], value="preview", label="Quality",
-                                         info="preview ≈ 15 s for checking | final ≈ 3-6 min, "
+                                         info="preview ≈ 15-30 s for checking | final ≈ 3-7 min, "
                                               "full beard/eye detail for printing")
                     with gr.Row():
                         r_finish = gr.Dropdown(ROYAL_FINISHES, value="bronze", label="Finish")
@@ -341,6 +341,8 @@ def build_ui() -> gr.Blocks:
                                            label="Neck cut (fraction of model height)")
                         r_crown = gr.Slider(0.6, 0.95, value=0.77, step=0.01,
                                             label="Crown / tiara / mitre height on the head")
+                        r_tidy = gr.Checkbox(value=True, label="Tidy hair (trim loose strands and long "
+                                             "hair below the neck - fragile in resin)")
                     with gr.Accordion("Customer", open=True):
                         r_cname = gr.Textbox(label="Customer name")
                         r_cphone = gr.Textbox(label="Phone / WhatsApp")
@@ -356,7 +358,7 @@ def build_ui() -> gr.Blocks:
             r_check_btn.click(check_royal_photo, r_photo, [r_check, r_crop, r_crop_file])
             r_go.click(run_royal,
                        [r_source, r_model, r_photo, r_piece, r_style, r_size, r_quality, r_finish, r_pack, r_turn,
-                        r_autoneck, r_neck, r_crown, r_cname, r_cphone, r_consent],
+                        r_autoneck, r_neck, r_crown, r_tidy, r_cname, r_cphone, r_consent],
                        [r_render, r_3d, r_files, r_quote, r_log])
 
         with gr.Tab("📋 Orders"):

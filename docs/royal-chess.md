@@ -84,10 +84,31 @@ writes **one watertight STL**.
 Outputs in the order folder: `..._king.stl`, preview PNG, 3D preview, the head
 model, `order.json` with the quote.
 
+## 2b. Names and message (engraved, optional)
+
+Open **Names & message** in the tab:
+
+| Field | Where | Max length |
+|---|---|---|
+| Name | cut into the front of the stand | ~8 letters on the couple gift, ~6 on the chess set (capitals: one less) |
+| Line 1, line 2 | cut under the base | full-size letters up to ~14 characters per line (couple gift) / ~10 (chess set); longer lines get smaller letters |
+| Date | under the base, below the message | e.g. 05.10.2026 |
+
+Fonts: **Script (Great Vibes)**, **Royal capitals (Cinzel)**, **Elegant italic (Playfair)**
+(bundled in `assets/fonts`, SIL Open Font License - free for commercial use). Dates always
+use the clear capitals font. Long names shrink automatically down to the smallest readable
+size; if they still do not fit, the app says so **before** building.
+
+The text is part of the STL - the print shop prints the file as it is. The underside text
+reads correctly when the piece is turned over (front edge at the top). Each order also gets
+`..._print_notes.txt` for the print shop (supports and drain holes away from the text,
+finish) and, with underside text, an `..._underside.png` picture.
+
 ## 3. Print and finish
 
 * **Resin (SLA/MSLA) only** - the beard and eyes are 0.1-0.3 mm details.
-* Ask the print shop to **hollow it with drain holes** (about half the resin).
+* Ask the print shop to **hollow it with drain holes** (about half the resin) - send them
+  the `print_notes.txt`: drain holes and supports must stay off the text under the base.
   Add weight inside (steel shot) and a felt pad under the base afterwards.
 * Finishes: **bronze** or **gold** = dark base coat, metallic paint, lightly
   rubbed back so the grooves stay dark (this shows the face best); **statue

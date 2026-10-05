@@ -98,6 +98,7 @@ the pricing is calculated.
 | `memory_factory/costing.py` + `config/pricing.json` | Cost per piece and suggested price |
 | `memory_factory/providers/meshy.py` | Optional Meshy API and import of Tripo/Meshy downloads |
 | `memory_factory/royal.py` | Royal Chess: 3D head → King / Queen / Bishop piece (one watertight solid), smooth statue or classic royal design |
+| `memory_factory/engrave.py` | Royal Chess: engraved name on the stand and message/date under the base (3 fonts in `assets/fonts`) |
 | `memory_factory/photo_check.py` | Checks a customer photo before spending Tripo credits; makes the Tripo-ready close-up |
 | `memory_factory/providers/tripo.py` | Tripo API v3: photo → 3D head (Ultra geometry, no texture) |
 | `tools/` | Command-line versions of both pipelines |

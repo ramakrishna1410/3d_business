@@ -35,9 +35,9 @@ def _look_at(eye, target, up=(0, 0, 1)):
 
 
 def render(items: list[Item], eye, target, size=(1600, 1000), fov_deg=35.0,
-           background=((246, 241, 232), (222, 214, 200)), ss=2) -> Image.Image:
+           background=((246, 241, 232), (222, 214, 200)), ss=2, up=(0, 0, 1)) -> Image.Image:
     W, H = size[0] * ss, size[1] * ss
-    rot, eye = _look_at(eye, target)
+    rot, eye = _look_at(eye, target, up)
     fpx = 0.5 * H / np.tan(np.radians(fov_deg) / 2)
     lights = [(np.array([-0.5, -0.8, 0.9]), 0.75), (np.array([0.8, -0.3, 0.4]), 0.35)]
     lights = [(d / np.linalg.norm(d), k) for d, k in lights]
@@ -56,7 +56,9 @@ def render(items: list[Item], eye, target, size=(1600, 1000), fov_deg=35.0,
             for j in range(3):
                 np.add.at(vn, it.faces[:, j], n * ln)
             vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
-            sn = vn[it.faces].mean(axis=1)
+            cv = vn[it.faces]                                   # (faces, 3, 3)
+            keep = np.einsum("fkc,fc->fk", cv, n) > np.cos(np.radians(35))   # sharp edges stay sharp
+            sn = np.where(keep[..., None], cv, n[:, None, :]).mean(axis=1)
             n = sn / np.maximum(np.linalg.norm(sn, axis=1, keepdims=True), 1e-12)
         tri, n, cen = tri[facing], n[facing], cen[facing]
         fcol = it.face_colors[facing] if it.face_colors is not None else None

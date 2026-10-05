@@ -258,6 +258,35 @@ def test_tidy_hair_removes_loose_strands_but_keeps_the_face():
     assert g.y[np.nonzero(sl)[1]].max() < royal.COLLAR[1] + 1.0       # hair ends inside the collar
 
 
+@pytest.mark.parametrize("font", ["Script (Great Vibes)", "Royal capitals (Cinzel)", "Elegant italic (Playfair)"])
+def test_royal_engraved_name_and_message(tmp_path, font):
+    pytest.importorskip("manifold3d")
+    from memory_factory import royal
+
+    base = dict(piece="queen", size=list(royal.SIZES)[1], quality="preview")
+    plain, _ = royal.build_piece(synthetic_bust(tmp_path), royal.RoyalSettings(**base), [])
+    log = []
+    s = royal.RoyalSettings(**base, font=font, name="Meera", message1="Ram & Meera", date="05.10.2026")
+    p, _ = royal.build_piece(synthetic_bust(tmp_path), s, log)
+    assert p.is_watertight and len(p.split(only_watertight=False)) == 1
+    assert p.volume < plain.volume - 5                     # letters are cut in, not added
+    assert any(l.startswith('Name "Meera"') for l in log) and any("Under the base" in l for l in log)
+    notes = royal.print_notes(s, 98)
+    assert '"Meera"' in notes and '"Ram & Meera"' in notes and "drain holes" in notes
+
+
+def test_royal_text_too_long_fails_before_building():
+    from memory_factory import royal
+
+    with pytest.raises(ValueError, match="too long"):
+        royal.check_text(royal.RoyalSettings(size=list(royal.SIZES)[0], name="Bartholomew Alexander"))
+    with pytest.raises(ValueError, match="too long"):
+        royal.check_text(royal.RoyalSettings(size=list(royal.SIZES)[0],
+                                             message1="With love from all of us at home, forever"))
+    royal.check_text(royal.RoyalSettings(size=list(royal.SIZES)[1], name="Lakshmi", message1="Ram & Meera",
+                                         message2="Forever", date="05.10.2026"))
+
+
 def test_royal_generate_end_to_end(tmp_path):
     pytest.importorskip("manifold3d")
     from memory_factory import royal
@@ -265,6 +294,7 @@ def test_royal_generate_end_to_end(tmp_path):
     s = royal.RoyalSettings(piece="king", quality="preview")
     r = royal.generate(synthetic_bust(tmp_path), s, {"name": "Test"})
     assert r.stl.exists() and r.render.exists() and (r.folder / "order.json").exists()
+    assert r.extra["print_notes"].exists()
     assert 95 < r.height_mm < 130                  # couple-gift size
     assert "Suggested price" in r.quote_md
 

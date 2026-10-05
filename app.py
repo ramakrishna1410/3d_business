@@ -21,7 +21,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from memory_factory import depth, drawing, imaging, medallion, orders, photo_check, royal
+from memory_factory import depth, drawing, engrave, imaging, medallion, orders, photo_check, royal
 from memory_factory.config import PRICING_FILE, load_local_env, load_pricing
 from memory_factory.render import MATERIALS
 
@@ -114,7 +114,8 @@ def check_royal_photo(photo):
 
 
 def run_royal(source, model_file, photo, piece, style, size, quality, finish, packaging, turn,
-              auto_neck, neck, crown, tidy, cust_name, cust_phone, consent, progress=gr.Progress()):
+              auto_neck, neck, crown, tidy, font, name, msg1, msg2, date, cust_name, cust_phone, consent,
+              progress=gr.Progress()):
     customer = _customer(cust_name, cust_phone, consent)
     if source == ROYAL_SOURCES[1]:
         if not photo:
@@ -132,7 +133,9 @@ def run_royal(source, model_file, photo, piece, style, size, quality, finish, pa
         src = model_file
     s = royal.RoyalSettings(piece=ROYAL_PIECES[piece], style=style, size=size, quality=quality,
                             turn=turn,
-                            neck=None if auto_neck else neck, crown=crown, tidy_hair=tidy, finish=finish,
+                            neck=None if auto_neck else neck, crown=crown, tidy_hair=tidy, font=font,
+                            name=name or "", message1=msg1 or "", message2=msg2 or "", date=date or "",
+                            finish=finish,
                             packaging=packaging)
     progress(0.02, desc="Starting...")
     try:
@@ -140,7 +143,9 @@ def run_royal(source, model_file, photo, piece, style, size, quality, finish, pa
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
     info = "\n".join(f"- {line}" for line in r.log)
-    files = [str(r.stl), str(r.render)] + ([str(r.head_model)] if r.head_model else [])
+    files = ([str(r.stl), str(r.extra["print_notes"]), str(r.render)]
+             + ([str(r.extra["underside"])] if "underside" in r.extra else [])
+             + ([str(r.head_model)] if r.head_model else []))
     return (str(r.render), str(r.glb) if r.glb else None, files, r.quote_md,
             f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
 
@@ -343,6 +348,18 @@ def build_ui() -> gr.Blocks:
                                             label="Crown / tiara / mitre height on the head")
                         r_tidy = gr.Checkbox(value=True, label="Tidy hair (trim loose strands and long "
                                              "hair below the neck - fragile in resin)")
+                    with gr.Accordion("Names & message (engraved, optional)", open=False):
+                        r_font = gr.Radio(list(engrave.FONTS), value=list(engrave.FONTS)[0], label="Font")
+                        r_name = gr.Textbox(label="Name on the front of the stand",
+                                            info="up to ~8 letters (couple gift) / ~6 (chess set)",
+                                            max_lines=1, max_length=14)
+                        with gr.Row():
+                            r_msg1 = gr.Textbox(label="Under the base - line 1", max_lines=1,
+                                                max_length=20, placeholder="Ram & Meera")
+                            r_msg2 = gr.Textbox(label="Under the base - line 2", max_lines=1,
+                                                max_length=20, placeholder="Forever")
+                        r_date = gr.Textbox(label="Date under the base", max_lines=1, max_length=14,
+                                            placeholder="05.10.2026")
                     with gr.Accordion("Customer", open=True):
                         r_cname = gr.Textbox(label="Customer name")
                         r_cphone = gr.Textbox(label="Phone / WhatsApp")
@@ -352,13 +369,15 @@ def build_ui() -> gr.Blocks:
                 with gr.Column(scale=1):
                     r_render = gr.Image(label="Preview", height=440)
                     r_3d = gr.Model3D(label="3D preview", height=360)
-                    r_files = gr.File(label="Downloads (STL for the printer)", file_count="multiple")
+                    r_files = gr.File(label="Downloads (STL + print notes for the print shop)",
+                                      file_count="multiple")
                     r_quote = gr.Markdown()
                     r_log = gr.Markdown()
             r_check_btn.click(check_royal_photo, r_photo, [r_check, r_crop, r_crop_file])
             r_go.click(run_royal,
                        [r_source, r_model, r_photo, r_piece, r_style, r_size, r_quality, r_finish, r_pack, r_turn,
-                        r_autoneck, r_neck, r_crown, r_tidy, r_cname, r_cphone, r_consent],
+                        r_autoneck, r_neck, r_crown, r_tidy, r_font, r_name, r_msg1, r_msg2,
+                        r_date, r_cname, r_cphone, r_consent],
                        [r_render, r_3d, r_files, r_quote, r_log])
 
         with gr.Tab("📋 Orders"):

@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
-from . import costing, mesh as mesh_mod, orders, render3d
+from . import costing, engrave, mesh as mesh_mod, orders, render3d
 from .config import load_pricing
 
 PIECES = {"king": ("King", 1.0), "queen": ("Queen", 0.94), "bishop": ("Bishop (child)", 0.86)}
@@ -62,6 +62,11 @@ class RoyalSettings:
     neck: float | None = None                         # neck cut, fraction of model height
     crown: float = 0.77                               # crown band, fraction of the head height
     tidy_hair: bool = True                            # trim loose strands / hair hanging below the neck
+    name: str = ""                                    # engraved on the front of the stand
+    message1: str = ""                                # engraved under the base
+    message2: str = ""
+    date: str = ""
+    font: str = "Script (Great Vibes)"                # see engrave.FONTS
     finish: str = "bronze"
     packaging: str = "velvet box"
 
@@ -497,23 +502,9 @@ def add_mitre(g, solid, z_band):
 # ---------------------------------------------------------------- bust + pedestal
 def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
     A, B, C, n, yc0 = (TORSO[k] for k in ("A", "B", "C", "n", "yc"))
-    g = Grid((-A - 2, -19, 0), (A + 2, 19, Z_NECK + 6), pitch)
+    g = Grid((-A - 2, -19, PED_TOP - 4), (A + 2, 19, Z_NECK + 6), pitch)   # pedestal: see stand()
     X, Y, Z = g.xyz()
-    R = BASE_R
     smooth = style == "smooth statue"
-    if smooth:      # stepped base with rounded rings, slim stem, double ring under the bust
-        prof = [(0, 0), (R, 0), (R, 2.4), (0.95 * R, 3.0), (0.95 * R, 4.4), (0.86 * R, 5.0),
-                (0.86 * R, 6.6), (0.72 * R, 7.4), (0.68 * R, 9.0), (0.55 * R, 10.0), (0.42 * R, 12.5),
-                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 5.5), (0.46 * R, PED_TOP - 4.4),
-                (0.46 * R, PED_TOP - 1.0), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
-        for rr, zr, tube in ((0.97 * R, 1.6, 1.0), (0.9 * R, 4.7, 0.85), (0.72 * R, 8.0, 0.8),
-                             (0.47 * R, PED_TOP - 3.4, 0.95), (0.48 * R, PED_TOP - 1.0, 0.95)):
-            g.add(_ring(g, (0, 0, zr), rr, rr, tube))
-    else:
-        prof = [(0, 0), (R, 0), (R, 3), (0.92 * R, 4.5), (0.85 * R, 6.5), (0.62 * R, 8.5), (0.42 * R, 12),
-                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 4), (0.46 * R, PED_TOP - 2.5),
-                (0.46 * R, PED_TOP - 1), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
-    g.add(_revolve(g, prof))
     zb = PED_TOP - 0.5
     zc = zb + 3.5
     q = (np.abs(X / A) ** n + np.abs((Y - yc0) / B) ** n + np.abs((Z - zc) / C) ** n) ** (1 / n)
@@ -601,6 +592,124 @@ def body(piece: str, pitch: float, style: str = "smooth statue") -> object:
     return g.to_trimesh()
 
 
+# ---------------------------------------------------------------- stand (turned, perfectly smooth)
+def _stand_profile(style: str):
+    R = BASE_R
+    if style == "smooth statue":   # stepped base with rounded rings, slim stem, double ring under the bust
+        prof = [(0, 0), (R, 0), (R, 2.4), (0.95 * R, 3.0), (0.95 * R, 4.4), (0.86 * R, 5.0),
+                (0.86 * R, 6.6), (0.72 * R, 7.4), (0.68 * R, 9.0), (0.55 * R, 10.0), (0.42 * R, 12.5),
+                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 5.5), (0.46 * R, PED_TOP - 4.4),
+                (0.46 * R, PED_TOP - 1.0), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
+        rings = ((0.97 * R, 1.6, 1.0), (0.9 * R, 4.7, 0.85), (0.72 * R, 8.0, 0.8),
+                 (0.47 * R, PED_TOP - 3.4, 0.95), (0.48 * R, PED_TOP - 1.0, 0.95))
+        stem = ((0.42 * R, 12.5), (0.33 * R, PED_TOP - 9))
+    else:
+        prof = [(0, 0), (R, 0), (R, 3), (0.92 * R, 4.5), (0.85 * R, 6.5), (0.62 * R, 8.5), (0.42 * R, 12),
+                (0.33 * R, PED_TOP - 9), (0.36 * R, PED_TOP - 4), (0.46 * R, PED_TOP - 2.5),
+                (0.46 * R, PED_TOP - 1), (0.3 * R, PED_TOP + 2), (0.0, PED_TOP + 2)]
+        rings = ()
+        stem = ((0.42 * R, 12), (0.33 * R, PED_TOP - 9))
+    return np.array(prof, float), rings, np.array(stem, float)
+
+
+def _round_corners(p: np.ndarray, r: float = 0.5, steps: int = 5) -> np.ndarray:
+    """Small fillets on every corner of the lathe profile (ends on the axis kept)."""
+    out = [p[0]]
+    for a, b, c in zip(p[:-2], p[1:-1], p[2:]):
+        ta = min(r / max(np.linalg.norm(a - b), 1e-9), 0.45)
+        tc = min(r / max(np.linalg.norm(c - b), 1e-9), 0.45)
+        p0, p2 = b + (a - b) * ta, b + (c - b) * tc
+        for t in np.linspace(0, 1, steps):
+            out.append((1 - t) ** 2 * p0 + 2 * (1 - t) * t * b + t ** 2 * p2)
+    out.append(p[-1])
+    q = np.array(out)
+    q[:, 0] = np.maximum(q[:, 0], 0.0)
+    return q
+
+
+def stand(style: str):
+    """The pedestal as a lathe-turned solid (layout units) - smooth surface, no voxel steps."""
+    import manifold3d as mf
+
+    prof, rings, _ = _stand_profile(style)
+    st = mf.Manifold.revolve(mf.CrossSection([_round_corners(prof)]), 256)
+    for rr, zr, tube in rings:
+        st = st + mf.Manifold.revolve(mf.CrossSection.circle(tube, 48).translate([rr, zr]), 256)
+    return st
+
+
+def _plan_text(s: RoyalSettings) -> dict:
+    """Fit the name / message / date to this piece and size (fast, no geometry). Raises a
+    readable ValueError when something does not fit."""
+    plan = {}
+    if s.font not in engrave.FONTS:
+        raise ValueError(f"Unknown font {s.font!r}")
+    k = s.scale
+    _, _, stem = _stand_profile(s.style)
+    stem = stem * k
+    if s.name.strip():
+        z_mid = stem.mean(axis=0)[1] + 0.6 * k
+        r_mid = float(np.interp(z_mid, stem[:, 1], stem[:, 0]))
+        h0 = min(5.2 * k, 0.8 * (stem[1, 1] - stem[0, 1]))
+        plan["name"] = (engrave.fit_name(s.name.strip(), s.font, h0, max_width=2.0 * r_mid), stem, z_mid)
+    kind = engrave.FONTS[s.font][1]
+    rb = (BASE_R - 0.6) * k - 2.0                                    # flat bottom minus a margin
+    lines = [(t, engrave.FONTS[s.font], (0.29 if kind == "script" else 0.22) * rb, engrave.MIN_MSG_MM[kind])
+             for t in (s.message1.strip(), s.message2.strip()) if t]
+    if s.date.strip():
+        lines.append((s.date.strip(), engrave.DATE_FONT, 0.13 * rb, engrave.MIN_DATE_MM))
+    if lines:
+        plan["under"] = engrave.fit_underside(lines, rb)
+    return plan
+
+
+def check_text(s: RoyalSettings) -> None:
+    """Call before a long build: raises ValueError if the text will not fit."""
+    _plan_text(s)
+
+
+def engrave_text(piece, s: RoyalSettings, log: list[str]):
+    """Cut the name into the front of the stem and the message/date into the base (piece at
+    final size)."""
+    plan = _plan_text(s)
+    if not plan:
+        return piece
+    m = _to_manifold(piece)
+    if "name" in plan:
+        p, stem, z_mid = plan["name"]
+        m = m - engrave.stem_tool(p, lambda z: np.interp(z, stem[:, 1], stem[:, 0]), z_mid)
+        log.append(f'Name "{p.text}" on the stand: {p.width:.1f} x {p.height:.1f} mm, '
+                   f"{engrave.NAME_DEPTH} mm deep")
+    if "under" in plan:
+        m = m - engrave.underside_tool(plan["under"])
+        log.append("Under the base: " + " / ".join(f'"{p.text}" ({p.height:.1f} mm)' for p, _ in plan["under"])
+                   + f", {engrave.UNDER_DEPTH} mm deep")
+    return _from_manifold(m)
+
+
+def print_notes(s: RoyalSettings, height: float) -> str:
+    lines = [f"ROYAL CHESS - {PIECES[s.piece][0]}  ({s.style}, {height:.0f} mm tall)",
+             "", "PRINT", "- Resin (SLA/MSLA), 0.05 mm layers. Print the STL as it is - all text is "
+             "already cut into the model.",
+             "- Hollow with ~2 mm walls. Put the drain holes on the BACK of the stand or near the "
+             "edge of the base - NOT on the text under the base.",
+             "- Supports: only on the outer rim of the base and the back - none across the "
+             "text under the base or across the face."]
+    if s.name.strip() or s.message1.strip() or s.message2.strip() or s.date.strip():
+        lines += ["", "ENGRAVED TEXT (check after printing)"]
+        if s.name.strip():
+            lines.append(f'- Front of the stand: "{s.name.strip()}"  ({s.font})')
+        under = [t.strip() for t in (s.message1, s.message2, s.date) if t.strip()]
+        if under:
+            lines.append("- Under the base (reads when the piece is turned over): "
+                         + " / ".join(f'"{t}"' for t in under))
+    lines += ["", f"FINISH: {s.finish}",
+              "- Metallic finishes: dark base coat into the letters and grooves, metallic paint "
+              "on top, lightly rubbed back so the letters and face details stay dark.",
+              "- Do not glue a full felt pad over text under the base (use a felt ring)."]
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------- assemble
 def _to_manifold(t):
     import manifold3d as mf
@@ -638,6 +747,7 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     import trimesh
 
     t0 = time.time()
+    check_text(s)                             # fail fast if a name / message is too long
     head_path = Path(head_path)
     m = load_head(head_path)
     log.append(f"Head model: {len(m.faces):,} triangles")
@@ -671,7 +781,7 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
         progress(0.75, desc="Bust and pedestal...")
     torso = body(s.piece, max(pitch * 2, 0.14), s.style)
     try:
-        piece = _from_manifold(_to_manifold(head) + _to_manifold(torso))
+        piece = _from_manifold(_to_manifold(head) + _to_manifold(torso) + stand(s.style))
     except Exception as exc:  # pragma: no cover - fallback: overlapping shells
         log.append(f"Union failed ({exc}); writing overlapping shells (slicer will merge them)")
         piece = trimesh.util.concatenate([head, torso])
@@ -681,6 +791,9 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
         piece = trimesh.util.concatenate([q for q in shells if q.volume > 0.01 * big])
     piece.apply_scale(s.scale)
     out = simplify(piece, 600_000, 0.01)
+    if progress:
+        progress(0.85, desc="Engraving the text...")
+    out = engrave_text(out, s, log)
     try:                                     # remove sliver triangles: print-shop checkers merge
         out = _from_manifold(_to_manifold(out).simplify(0.005))   # close points and flag them
     except Exception:
@@ -690,17 +803,48 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     return out, dict(neck=lm["neck_frac"])
 
 
-def render_image(t, colour, path: Path, size_scale: float = 1.0) -> Path:
+def _letter_colours(v, f, colour, s: RoyalSettings | None):
+    """Darken the inside of the engraved name, as the antique wash does on the real piece."""
+    cols = np.tile(np.array(colour, float), (len(f), 1))
+    if s is None or not s.name.strip():
+        return cols
+    _, _, stem = _stand_profile(s.style)
+    stem = stem * s.scale
+    c = v[f].mean(axis=1)
+    r_s = np.interp(c[:, 2], stem[:, 1], stem[:, 0])
+    cut = ((np.hypot(c[:, 0], c[:, 1]) < r_s - 0.15) & (c[:, 2] > stem[0, 1]) & (c[:, 2] < stem[1, 1])
+           & (c[:, 1] < 0))
+    cols[cut] = np.array(colour, float) * 0.35
+    return cols
+
+
+def render_image(t, colour, path: Path, size_scale: float = 1.0, s: RoyalSettings | None = None) -> Path:
     """Preview picture. The camera depends only on the Size setting (not on the piece), so
     King, Queen and Bishop pictures are at the same scale and can be compared directly."""
     small = simplify(t.copy(), 250_000, 0.02)
+    v, f = np.asarray(small.vertices), np.asarray(small.faces)
     hgt = 82.0 * size_scale                     # King incl. cross at this size
     base = mesh_mod.box((hgt * 0.75, hgt * 0.75, hgt * 0.08), (-hgt * 0.375, -hgt * 0.375, -hgt * 0.08))
     items = [render3d.Item(base.vertices, base.faces, (35, 32, 30), 0.4, layer=0),
-             render3d.Item(np.asarray(small.vertices), np.asarray(small.faces), colour, 0.45,
-                           smooth=True)]
+             render3d.Item(v, f, colour, 0.45, smooth=True, face_colors=_letter_colours(v, f, colour, s))]
     img = render3d.render(items, eye=(hgt * 0.7, -hgt * 2.0, hgt * 1.0), target=(0, 0, hgt * 0.52),
                           size=(800, 1000), fov_deg=34)
+    img.save(path)
+    return path
+
+
+def render_underside(t, colour, path: Path) -> Path:
+    """The base seen from below, as when the piece is turned over (front edge at the top)."""
+    small = simplify(t.copy(), 250_000, 0.02)
+    v, f = np.asarray(small.vertices), np.asarray(small.faces)
+    rb = float(np.abs(v[:, :2]).max())
+    c = v[f].mean(axis=1)
+    cols = np.tile(np.array(colour, float), (len(f), 1))
+    cols[(c[:, 2] > 0.05) & (c[:, 2] < 1.0) & (np.hypot(c[:, 0], c[:, 1]) < rb * 0.9)] *= 0.35
+    flipped = v * [1, -1, -1]                       # turned over, so the lights fall on the base
+    img = render3d.render([render3d.Item(flipped, f, colour, 0.3, face_colors=cols)],
+                          eye=(0, 0, rb * 4.2), target=(0, 0, 0), size=(700, 700), fov_deg=30,
+                          up=(0, 1, 0), background=((60, 52, 44), (40, 34, 28)))
     img.save(path)
     return path
 
@@ -729,7 +873,13 @@ def generate(source, s: RoyalSettings, customer: dict | None = None, api_key: st
                                      folder / f"{order_id}_{label}_preview.glb", color=colour)
     if progress:
         progress(0.95, desc="Rendering preview...")
-    img = render_image(piece, colour, folder / f"{order_id}_{label}.png", SIZES.get(s.size, 1.0))
+    img = render_image(piece, colour, folder / f"{order_id}_{label}.png", SIZES.get(s.size, 1.0), s)
+    extra = {}
+    if s.message1.strip() or s.message2.strip() or s.date.strip():
+        extra["underside"] = render_underside(piece, colour, folder / f"{order_id}_{label}_underside.png")
+    notes = folder / f"{order_id}_{label}_print_notes.txt"
+    notes.write_text(print_notes(s, float(piece.bounds[1][2])), encoding="utf-8")
+    extra["print_notes"] = notes
     vol = float(abs(piece.volume)) if piece.is_watertight else 0.0
     hgt = float(piece.bounds[1][2])
     q = costing.quote_royal(vol, hgt, s.finish, s.packaging)
@@ -740,4 +890,4 @@ def generate(source, s: RoyalSettings, customer: dict | None = None, api_key: st
                                "quote": {"total_price": q.total_price, "lines": q.lines},
                                "log": log, **info})
     return Result(order_id, folder, stl, glb, img, q.as_markdown(p["gst_percent"]), log, vol, hgt,
-                  head_model=head_path)
+                  head_model=head_path, extra=extra)

@@ -290,6 +290,68 @@ def tidy_hair(solid, g, log) -> np.ndarray:
     return solid
 
 
+def head_field(solid, g, v, faces, log, layers: int = 4, smooth: float = 1.5) -> np.ndarray:
+    """Occupancy field whose 0.5 level follows the *original* head surface (sub-voxel), so the
+    face comes out smooth instead of stepped. The voxel solid still decides what is inside
+    (holes filled, neck cut, tidy hair); near the surface the distance to the Tripo surface is
+    used, from a moving-least-squares fit of its points and normals. Works in chunks (low RAM)."""
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    p = g.p
+    # ring index: -layers..layers voxels from the solid boundary (+ inside), cheap boolean ops
+    ring = np.where(solid, layers + 1, -(layers + 1)).astype(np.int8)
+    cur = solid.copy()
+    for i in range(layers, 0, -1):            # inside rings
+        nxt = ndimage.binary_erosion(cur)
+        ring[cur & ~nxt] = layers + 1 - i
+        cur = nxt
+    cur = solid.copy()
+    for i in range(1, layers + 1):            # outside rings
+        nxt = ndimage.binary_dilation(cur)
+        ring[nxt & ~cur] = -i
+        cur = nxt
+    del cur, nxt
+    f = solid.astype(np.float32)
+
+    vs, fs = trimesh.remesh.subdivide_to_size(v, faces, max_edge=p, max_iter=12)
+    vn = np.asarray(trimesh.Trimesh(vs, fs, process=False).vertex_normals, np.float32)
+    del fs
+    vi = np.round((vs - [g.x[0], g.y[0], g.z[0]]) / p).astype(int)
+    okk = np.all((vi >= 0) & (vi < ring.shape), axis=1)
+    r_at = np.full(len(vs), 99, np.int16)
+    r_at[okk] = ring[vi[okk, 0], vi[okk, 1], vi[okk, 2]]
+    keep = np.abs(r_at) <= 2                  # visible outer skin only (not eyeballs, inner shells)
+    vs, vn = vs[keep].astype(np.float32), vn[keep]
+
+    def ring_at(q):
+        qi = np.clip(np.round((q - [g.x[0], g.y[0], g.z[0]]) / p).astype(int), 0, np.array(ring.shape) - 1)
+        return ring[qi[:, 0], qi[:, 1], qi[:, 2]]
+    flip = ring_at(vs + vn * 2 * p) > ring_at(vs - vn * 2 * p)     # outward = towards outside
+    vn[flip] *= -1
+    tree = cKDTree(vs)
+
+    band = np.abs(ring) <= layers
+    ii = np.nonzero(band)
+    h = smooth * p
+    for a in range(0, len(ii[0]), 400_000):
+        sl = slice(a, a + 400_000)
+        P = np.column_stack([g.x[ii[0][sl]], g.y[ii[1][sl]], g.z[ii[2][sl]]]).astype(np.float32)
+        d, j = tree.query(P, k=8, workers=-1)
+        w = np.exp(-(d / h) ** 2)
+        w /= np.maximum(w.sum(1, keepdims=True), 1e-12)
+        n = (w[..., None] * vn[j]).sum(1)
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        c = (w[..., None] * vs[j]).sum(1)
+        sd = -np.einsum("nc,nc->n", P - c, n)                    # + inside
+        e = ring[ii[0][sl], ii[1][sl], ii[2][sl]].astype(np.float32)
+        e = (e - np.sign(e) * 0.5) * p                            # voxel-based distance
+        sd = np.where(d[:, 0] > 2.5 * p, e, np.minimum(sd, e + 2.5 * p))   # never outside the solid
+        f[ii[0][sl], ii[1][sl], ii[2][sl]] = np.clip(0.5 + sd / p, 0, 1)
+    log.append(f"Smooth face: surface fitted to {len(vs):,} points of the original model")
+    return f
+
+
 def _section(solid, g, z_band, depth_mm=2.0):
     """Smoothed horizontal section of the head around the band height."""
     kb = int(np.argmin(np.abs(g.z - z_band)))
@@ -324,8 +386,8 @@ def add_crown(g, solid, z_band):
     tri = np.clip(1 - 2 * np.abs((th * 8 / (2 * np.pi) + 0.5) % 1.0 - 0.5), 0, 1)
     d2 = (dout - din)[:, :, None]            # signed: negative inside the head section
     ztop = z_band + hb + 3.0 * tri ** 1.6
-    # the band reaches 0.6 mm into the head so it is fused to it (one solid)
-    g.add(np.minimum(np.minimum(d2 + 0.6, gap + t - d2), np.minimum(Z - z_band, ztop - Z)))
+    # the band reaches 1.2 mm into the head so it is fused to it (one solid)
+    g.add(np.minimum(np.minimum(d2 + 1.2, gap + t - d2), np.minimum(Z - z_band, ztop - Z)))
     g.add(np.minimum(0.65 - np.abs(d2 - (gap + t * 0.6)), 0.65 - np.abs(Z - (z_band + 0.45))))
     capz = z_band + hb - 0.5 + 4.6 * np.sqrt(np.clip(din / max(din.max(), 1e-6), 0, 1))[:, :, None]
     inside = np.where(sec, 1.0, -1.0)[:, :, None]
@@ -351,7 +413,7 @@ def add_crown_smooth(g, solid, z_band):
     tri = np.clip(1 - 2 * np.abs((th * 8 / (2 * np.pi) + 0.5) % 1.0 - 0.5), 0, 1)
     d2 = (dout - din)[:, :, None]
     ztop = z_band + hb + ph * tri ** 1.15
-    g.add(np.minimum(np.minimum(d2 + 0.6, 0.25 + t - d2), np.minimum(Z - z_band, ztop - Z)))
+    g.add(np.minimum(np.minimum(d2 + 1.2, 0.25 + t - d2), np.minimum(Z - z_band, ztop - Z)))
     for zr in (z_band + 0.45, z_band + hb - 0.35):                     # rim mouldings
         g.add(np.minimum(0.55 - np.abs(d2 - (0.25 + t)), 0.5 - np.abs(Z - zr)))
     capz = z_band + hb + 1.8 * np.sqrt(np.clip(din / max(din.max(), 1e-6), 0, 1))[:, :, None]
@@ -381,7 +443,7 @@ def add_tiara_smooth(g, solid, z_band):
     peak = np.clip(np.cos(th), 0, 1) ** 14                             # front centre
     ztop = z_band + hb + (1.3 + 1.7 * tall + 2.0 * peak) * w ** 2.5
     d2 = (dout - din)[:, :, None]
-    g.add(np.minimum(np.minimum(d2 + 0.5, 0.2 + t - d2), np.minimum(Z - z_band, ztop - Z)))
+    g.add(np.minimum(np.minimum(d2 + 1.2, 0.2 + t - d2), np.minimum(Z - z_band, ztop - Z)))
     g.add(np.minimum(0.5 - np.abs(d2 - (0.2 + t)), 0.45 - np.abs(Z - (z_band + 0.4))))   # rim
     for k in range(12):
         a = k * 2 * np.pi / 12
@@ -403,7 +465,7 @@ def add_tiara(g, solid, z_band):
     d2 = (dout - din)[:, :, None]
     z0 = z_band - 0.6 * front      # sits a little lower at the forehead
     ztop = z0 + 0.9 + front ** 2 * (2.8 + 1.0 * sc ** 2)
-    sd = np.minimum(np.minimum(d2 + 0.5, gap + t - d2), np.minimum(Z - z0, ztop - Z))
+    sd = np.minimum(np.minimum(d2 + 1.2, gap + t - d2), np.minimum(Z - z0, ztop - Z))
     g.add(np.minimum(sd, np.cos(th) + 0.25))                    # front arc only, fused to the hair
     for k in range(-4, 5):
         a = k * 2 * np.pi / 11
@@ -593,7 +655,9 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
     solid, g = solid_head(v, np.asarray(m.faces), pitch, lo, hi, Z_NECK, log)
     if s.tidy_hair:
         solid = tidy_hair(solid, g, log)
-    g.f = ndimage.gaussian_filter(solid.astype(np.float32), 0.6)
+    if progress:
+        progress(0.5, desc="Smoothing the face...")
+    g.f = head_field(solid, g, v, np.asarray(m.faces), log)
     z_band = Z_NECK + float(s.crown) * HEAD_H
     if progress:
         progress(0.6, desc=f"Fitting the {PIECES[s.piece][0].lower()} regalia...")
@@ -617,6 +681,10 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
         piece = trimesh.util.concatenate([q for q in shells if q.volume > 0.01 * big])
     piece.apply_scale(s.scale)
     out = simplify(piece, 600_000, 0.01)
+    try:                                     # remove sliver triangles: print-shop checkers merge
+        out = _from_manifold(_to_manifold(out).simplify(0.005))   # close points and flag them
+    except Exception:
+        pass
     log.append(f"Piece: {len(out.faces):,} triangles, watertight={out.is_watertight}, "
                f"height {out.bounds[1][2]:.1f} mm ({time.time() - t0:.0f}s)")
     return out, dict(neck=lm["neck_frac"])

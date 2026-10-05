@@ -329,7 +329,7 @@ def build_ui() -> gr.Blocks:
                                        info="smooth statue: clean crown with a cross, plain mantle | "
                                             "classic royal: ermine collar, chain of office")
                     r_quality = gr.Radio(["preview", "final"], value="preview", label="Quality",
-                                         info="preview ≈ 15-30 s for checking | final ≈ 3-7 min, "
+                                         info="preview ≈ 30-40 s to check the layout | final ≈ 5-8 min, "
                                               "full beard/eye detail for printing")
                     with gr.Row():
                         r_finish = gr.Dropdown(ROYAL_FINISHES, value="bronze", label="Finish")

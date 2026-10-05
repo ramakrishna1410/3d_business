@@ -72,7 +72,7 @@ Choose **"Photo -> Tripo API"** in the tab. The app uploads the photo, asks for
 | Piece | King (dad) · Queen (mom) · Bishop (child) |
 | Design | **smooth statue** - King: clean crown with ball-tipped points and a cross, plain mantle, stand-up collar · Queen: pearl-tipped coronet with a front jewel, pearl choker, gown neckline and pearl necklace · stepped pedestal. **classic royal**: ermine collar, chain of office, pearls |
 | Size | chess set (King ~80 mm) · couple gift (King ~113 mm) |
-| Quality | **preview** (~15-30 s) to check · **final** (3-7 min, 0.1 mm detail, needs ~4 GB free RAM) for printing |
+| Quality | **preview** (~30-40 s) to check the layout · **final** (5-8 min, 0.1 mm detail, needs ~5 GB free RAM) for printing - judge the face only on final |
 | Adjust | only if needed: turn the head, move the neck cut, move the crown up/down, **Tidy hair** (on by default: trims thin loose strands and long hair below the neck so nothing fragile hangs off; the face is never touched) |
 
 The app automatically turns the head upright and facing front, cuts it at the neck

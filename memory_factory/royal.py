@@ -729,6 +729,137 @@ def _from_manifold(m):
     return trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=False)
 
 
+def weld_short_edges(t, eps: float = 0.02, log: list[str] | None = None):
+    """Collapse every edge shorter than `eps` mm (manifold-safe edge collapses).
+
+    Print-shop checkers merge points that are closer than ~0.001-0.01 mm; tiny slivers
+    (left by booleans, e.g. where letters are cut) then become edges shared by three
+    faces and the file is reported as "non-manifold". After this no two connected points
+    are closer than `eps`, so any merge tolerance up to eps/2 keeps the mesh closed."""
+    import trimesh
+
+    V = np.asarray(t.vertices, np.float64).copy()
+    F = np.asarray(t.faces, np.int64).copy()
+    alive = np.ones(len(F), bool)
+    vf: dict[int, set] = {}
+
+    def faces_of(v):
+        if v not in vf:
+            vf[v] = set()
+        return vf[v]
+
+    e = np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), axis=1)
+    e = np.unique(e, axis=0)
+    short = e[np.linalg.norm(V[e[:, 0]] - V[e[:, 1]], axis=1) < eps]
+    if len(short) == 0:
+        return t
+    touch = np.unique(short)
+    hit = np.isin(F, touch).any(axis=1)                   # only faces near short edges matter
+    for fi in np.nonzero(hit)[0]:
+        for v in F[fi]:
+            faces_of(int(v)).add(int(fi))
+    # neighbours of those faces' vertices too (needed for the link condition)
+    for fi in np.nonzero(np.isin(F, np.unique(F[hit])).any(axis=1))[0]:
+        for v in F[fi]:
+            faces_of(int(v)).add(int(fi))
+
+    def nbrs(v):
+        return {int(x) for fi in vf[v] for x in F[fi]} - {v}
+
+    def normal(a, b, c):
+        return np.cross(b - a, c - a)
+
+    done = skipped = 0
+    for _ in range(4):
+        changed = False
+        for a, b in short:
+            a, b = int(a), int(b)
+            if a not in vf or b not in vf or not vf[a] or not vf[b]:
+                continue
+            if np.linalg.norm(V[a] - V[b]) >= eps:
+                continue
+            shared = vf[a] & vf[b]
+            if len(shared) != 2:
+                skipped += 1
+                continue
+            opp = {int(x) for fi in shared for x in F[fi]} - {a, b}
+            if (nbrs(a) & nbrs(b)) != opp:                 # link condition -> stays manifold
+                skipped += 1
+                continue
+            pnew = None
+            for cand in ((V[a] + V[b]) / 2, V[a].copy(), V[b].copy()):
+                ok = True
+                for fi in (vf[a] | vf[b]) - shared:        # no face may flip over
+                    tri = V[F[fi]].copy()
+                    n0 = normal(*tri)
+                    tri[(F[fi] == a) | (F[fi] == b)] = cand
+                    if np.dot(n0, normal(*tri)) < 0 and np.linalg.norm(n0) > 1e-12:
+                        ok = False
+                        break
+                if ok:
+                    pnew = cand
+                    break
+            if pnew is None:
+                skipped += 1
+                continue
+            for fi in shared:
+                alive[fi] = False
+                for x in F[fi]:
+                    vf[int(x)].discard(fi)
+            for fi in vf[b]:
+                F[fi][F[fi] == b] = a
+                vf[a].add(fi)
+            vf[b] = set()
+            V[a] = pnew
+            done += 1
+            changed = True
+        if not changed:
+            break
+        e = np.sort(np.concatenate([F[alive][:, [0, 1]], F[alive][:, [1, 2]], F[alive][:, [2, 0]]]), axis=1)
+        e = np.unique(e, axis=0)
+        short = e[np.linalg.norm(V[e[:, 0]] - V[e[:, 1]], axis=1) < eps]
+        for v in np.unique(short):
+            if int(v) not in vf:                           # new neighbourhood: register it
+                for fi in np.nonzero((F == v).any(axis=1) & alive)[0]:
+                    for x in F[fi]:
+                        faces_of(int(x)).add(int(fi))
+    out = trimesh.Trimesh(V, F[alive], process=False)
+    out.remove_unreferenced_vertices()
+    # the few edges that could not be collapsed safely: stretch them to 0.6*eps (invisible)
+    for _ in range(3):
+        eu = out.edges_unique
+        el = np.linalg.norm(out.vertices[eu[:, 0]] - out.vertices[eu[:, 1]], axis=1)
+        tiny = eu[el < 0.6 * eps]
+        if len(tiny) == 0:
+            break
+        vv = np.array(out.vertices)
+        for a, b in tiny:
+            d = vv[b] - vv[a]
+            n = np.linalg.norm(d)
+            u = d / n if n > 1e-12 else out.vertex_normals[a]
+            grow = (0.6 * eps - n) / 2
+            vv[a] -= u * grow
+            vv[b] += u * grow
+        out = trimesh.Trimesh(vv, out.faces, process=False)
+    # points of two surfaces that almost touch (not connected): move each a hair inwards
+    from scipy.spatial import cKDTree
+
+    edges = {tuple(x) for x in np.sort(out.edges_unique, axis=1)}
+    for _ in range(5):
+        pairs = [p for p in cKDTree(out.vertices).query_pairs(eps / 2, output_type="ndarray")
+                 if tuple(sorted(p)) not in edges]
+        if not pairs:
+            break
+        idx = np.unique(np.array(pairs))
+        vv = np.array(out.vertices)
+        vv[idx] -= out.vertex_normals[idx] * (eps / 2)
+        out = trimesh.Trimesh(vv, out.faces, process=False)
+    if log is not None:
+        log.append(f"Clean-up for print-shop checkers: {done} tiny edges removed"
+                   + (f" ({skipped} left)" if skipped else ""))
+    return out
+
+
 def simplify(t, max_faces: int, tol0: float):
     """Watertight-preserving simplification (manifold3d)."""
     try:
@@ -798,6 +929,7 @@ def build_piece(head_path, s: RoyalSettings, log: list[str], progress=None):
         out = _from_manifold(_to_manifold(out).simplify(0.005))   # close points and flag them
     except Exception:
         pass
+    out = weld_short_edges(out, 0.02, log)   # no two points closer than 0.012 mm -> any checker passes
     log.append(f"Piece: {len(out.faces):,} triangles, watertight={out.is_watertight}, "
                f"height {out.bounds[1][2]:.1f} mm ({time.time() - t0:.0f}s)")
     return out, dict(neck=lm["neck_frac"])

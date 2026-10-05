@@ -275,6 +275,30 @@ def test_royal_engraved_name_and_message(tmp_path, font):
     assert '"Meera"' in notes and '"Ram & Meera"' in notes and "drain holes" in notes
 
 
+def _shop_check(t, tol):
+    """What online print-shop checkers do: merge points closer than `tol`, then every edge
+    must be shared by exactly two triangles."""
+    tri = np.asarray(t.vertices)[t.faces].astype(np.float32).astype(np.float64).reshape(-1, 3)
+    _, inv = np.unique(np.round(tri / tol), axis=0, return_inverse=True)
+    f = inv.reshape(-1, 3)
+    f = f[(f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])]
+    e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+    _, c = np.unique(e, axis=0, return_counts=True)
+    return int((c != 2).sum())
+
+
+def test_royal_piece_passes_print_shop_checks(tmp_path):
+    pytest.importorskip("manifold3d")
+    from memory_factory import royal
+
+    s = royal.RoyalSettings(piece="king", quality="preview", name="Ram", message1="Ram & Meera",
+                            date="05.10.2026")
+    p, _ = royal.build_piece(synthetic_bust(tmp_path), s, [])
+    assert p.is_watertight
+    for tol in (1e-4, 1e-3, 1e-2):
+        assert _shop_check(p, tol) == 0, f"non-manifold after merging at {tol} mm"
+
+
 def test_royal_text_too_long_fails_before_building():
     from memory_factory import royal
 

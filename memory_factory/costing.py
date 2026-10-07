@@ -109,3 +109,25 @@ def quote_royal(volume_mm3: float, height_mm: float, finish: str, packaging: str
                    "with drain holes (cheaper, less resin); add weight inside afterwards.")
     q.notes.append("If you outsource printing, replace resin + printer time with the shop's quote.")
     return q
+
+
+def quote_pendant(volume_mm3: float, metal: str, quantity: int, packaging: str) -> Quote:
+    """One cast pendant (per piece); quantity = pendants in the order (2 for a his & hers pair)."""
+    p = load_pricing()
+    c = p["pendant"]
+    q = Quote(quantity=max(1, int(quantity)))
+    grams = volume_mm3 / 1000 * c["density_g_per_cm3"][metal] * c["metal_loss_factor"]
+    q.lines[f"Metal ({grams:.1f} g {metal})"] = grams * c["metal_rate_per_gram"][metal]
+    q.lines["Castable-resin print (jeweller CAM)"] = c["cam_print_per_piece"]
+    q.lines["Casting + polish"] = max(c["min_casting_charge"], grams * c["casting_per_gram"][metal])
+    q.lines["Plating / finish"] = c["plating_per_piece"][metal]
+    q.lines["3D head (Tripo credits)"] = c["head_model_cost"]
+    q.lines["Packaging"] = c["packaging_per_piece"].get(packaging, 0)
+    q.lines["Labour (files, checks, chain, packing)"] = c["labour_minutes"] / 60 * p["labour_per_hour"]
+    q.cost_per_piece = sum(q.lines.values())
+    q.price_per_piece = _price_from_margin(q.cost_per_piece, c["target_margin_percent"])
+    q.notes.append("Jeweller prices are starting assumptions - update config/pricing.json with real quotes.")
+    if metal == "925 Silver":
+        q.notes.append("Silver rate changes daily: update metal_rate_per_gram before quoting.")
+    q.notes.append("GST: 3% on silver metal value + 5% on making charges if you bill as jewellery.")
+    return q

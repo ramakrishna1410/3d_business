@@ -445,3 +445,76 @@ def test_photo_check_warnings(fake_detector):
     fake_detector["faces"] = [(300, 250, 300, 300)]
     c = photo_check.check_photo(portrait(sharp=False), white_background=False)
     assert c.level == "warning" and "blurry" in " ".join(c.messages)
+
+
+# ---------------------------------------------------------------- face pendant
+def test_pendant_chin_found_on_synthetic_head(tmp_path):
+    from memory_factory import pendant, royal
+
+    v = royal.orient(royal.load_head(synthetic_bust(tmp_path)), ".stl", "0°", [])
+    z = pendant.chin_z(v, royal.landmarks(v, None)["cx"])
+    assert 18 < z < 25.5            # chin sphere sits at z 21-26, the neck below it
+
+
+@pytest.mark.parametrize("shape", ["Round", "Heart", "Oval"])
+def test_pendant_builds_casting_safe(tmp_path, shape):
+    from memory_factory import pendant
+
+    s = pendant.PendantSettings(shape=shape, line1="Ram ♥ Meera", line2="Forever", date="12.02.2015",
+                                turn="0°")
+    p = pendant.build(synthetic_bust(tmp_path), s, [])
+    assert p.info["back_text"]
+    assert p.info["min_thickness_mm"] >= pendant.MIN_T - 1e-6
+    assert p.top[p.mask].max() <= pendant.FIELD + pendant.RIM_H + 0.05
+    # the loop hole is open (no metal in its centre) and sits above the body
+    rows = np.nonzero(p.mask.any(1))[0]
+    hole = p.mask[rows[0]:rows[0] + int(2 * pendant.LOOP_R / pendant.PX)]
+    assert (~hole).sum() > 0
+
+
+def test_pendant_back_text_is_mirrored_to_read_from_the_back(tmp_path):
+    from memory_factory import pendant
+
+    s = pendant.PendantSettings(line1="RAM", date="", turn="0°")
+    p = pendant.build(synthetic_bust(tmp_path), s, [])
+    body, dist, *_ = pendant.frame(s.shape, pendant.SIZES[s.size])
+    text = pendant.fit_back_text(s, body & (dist > 1.4), pendant.SIZES[s.size])
+    cut = p.bottom > pendant.ENGRAVE / 2
+    assert (cut & text[:, ::-1]).sum() > 0.8 * cut.sum()       # seen from the back it reads "RAM"
+    assert (cut & text).sum() < 0.5 * cut.sum()
+
+
+def test_pendant_text_too_long_fails_before_building():
+    from memory_factory import pendant
+
+    with pytest.raises(ValueError, match="too long"):
+        pendant.check_text(pendant.PendantSettings(size="Small 20 mm", line1="Bartholomew & Alexandra"))
+    pendant.check_text(pendant.PendantSettings(back=pendant.BACKS[1], line1="Bartholomew & Alexandra"))
+
+
+def test_pendant_quote_silver_costs_more_than_brass():
+    from memory_factory import costing
+
+    brass = costing.quote_pendant(550, "Gold-plated brass", 2, "velvet box")
+    silver = costing.quote_pendant(550, "925 Silver", 2, "velvet box")
+    assert silver.cost_per_piece > brass.cost_per_piece > 0
+    assert brass.total_price == brass.price_per_piece * 2
+
+
+def test_pendant_pair_end_to_end_passes_shop_checks(tmp_path):
+    pytest.importorskip("manifold3d")
+    trimesh = pytest.importorskip("trimesh")
+    from memory_factory import pendant
+
+    head = synthetic_bust(tmp_path)
+    s = pendant.PendantSettings(shape="Heart", line1="Ram ♥ Meera", date="12.02.2015", turn="0°")
+    r = pendant.generate([(head, "Meera"), (head, "Ram")], s, {"name": "Test"})
+    stls = [f for f in r.files if str(f).endswith(".stl")]
+    assert len(stls) == 2 and len(r.previews) == 2 and r.glb
+    for f in stls:
+        t = trimesh.load(f)
+        assert t.is_watertight and t.volume > 0
+        for tol in (1e-4, 1e-3, 1e-2):
+            assert _shop_check(t, tol) == 0
+    assert set(r.weights) == {"Meera", "Ram"}
+    assert "₹" in r.quote_md

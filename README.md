@@ -30,6 +30,9 @@ tested through Instagram, wedding expos and school tie-ups before renting mall s
  3D head        (Tripo app file, or photo → Tripo API) → upright,     STL: King / Queen / Bishop
  (Royal Chess)  face front → neck cut → solid head → crown / tiara /  chess piece with the
                 mitre fitted to the head → royal bust + pedestal      person's face, preview, quote
+ 3D head        crown + chin found → front depth → bas-relief →       STL for the jeweller (cast
+ (Face Pendant) round / heart / oval frame, rim, cast-in loop →      brass / silver), front+back
+                names + date engraved on the back                     proof, jeweller notes, quote
 ```
 
 Every job is saved as an order folder in `orders/` with the original image, the STL,
@@ -99,6 +102,7 @@ the pricing is calculated.
 | `memory_factory/providers/meshy.py` | Optional Meshy API and import of Tripo/Meshy downloads |
 | `memory_factory/royal.py` | Royal Chess: 3D head → King / Queen / Bishop piece (one watertight solid), smooth statue or classic royal design |
 | `memory_factory/engrave.py` | Royal Chess: engraved name on the stand and message/date under the base (3 fonts in `assets/fonts`) |
+| `memory_factory/pendant.py` | Face Pendant: 3D head → raised-portrait pendant for lost-wax casting, engraved back, his & hers pairs |
 | `memory_factory/photo_check.py` | Checks a customer photo before spending Tripo credits; makes the Tripo-ready close-up |
 | `memory_factory/providers/tripo.py` | Tripo API v3: photo → 3D head (Ultra geometry, no texture) |
 | `tools/` | Command-line versions of both pipelines |
@@ -106,6 +110,7 @@ the pricing is calculated.
 | `docs/kids-drawing-workflow.md` | Drawing SOP: capture → 3D → print → paint |
 | `docs/costing.md` | Cost model, pricing and break-even |
 | `docs/royal-chess.md` | Royal Chess: Tripo settings, the tab, printing and finishing |
+| `docs/face-pendant.md` | Face Pendant: the tab, sending files to a casting shop, metals and pricing |
 
 ## Before you sell
 

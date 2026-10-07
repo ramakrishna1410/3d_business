@@ -7,8 +7,9 @@ Tabs
     1. Wedding Medallion   couple photo  -> coin STL + WhatsApp proof + quote
     2. Kids Drawing 3D     drawing photo -> plaque / figure STL + painting guide + quote
     3. Royal Chess         photo (Tripo API) or Tripo 3D head -> King/Queen/Bishop STL
-    4. Orders              every job saved in ./orders
-    5. Settings            AI engine status, API keys, prices
+    4. Face Pendant        Tripo 3D head -> cast pendant STL (jeweller) + front/back proof
+    5. Orders              every job saved in ./orders
+    6. Settings            AI engine status, API keys, prices
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ from pathlib import Path
 
 import gradio as gr
 
-from memory_factory import depth, drawing, engrave, imaging, medallion, orders, photo_check, royal
+from memory_factory import (depth, drawing, engrave, imaging, medallion, orders, pendant, photo_check,
+                            royal)
 from memory_factory.config import PRICING_FILE, load_local_env, load_pricing
 from memory_factory.render import MATERIALS
 
@@ -31,6 +33,7 @@ DRAWING_PAINT = list(load_pricing()["drawing"]["paint_per_piece"])
 DRAWING_PACKAGING = list(load_pricing()["drawing"]["packaging_per_piece"])
 ROYAL_FINISHES = list(load_pricing()["royal_chess"]["finish_per_piece"])
 ROYAL_PACKAGING = list(load_pricing()["royal_chess"]["packaging_per_piece"])
+PENDANT_PACKAGING = list(load_pricing()["pendant"]["packaging_per_piece"])
 
 load_local_env()
 _session = {"meshy_key": os.environ.get("MESHY_API_KEY", ""),
@@ -148,6 +151,45 @@ def run_royal(source, model_file, photo, piece, style, size, quality, finish, pa
              + ([str(r.head_model)] if r.head_model else []))
     return (str(r.render), str(r.glb) if r.glb else None, files, r.quote_md,
             f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
+
+
+def _pendant_source(source, model_file, photo, who):
+    if source == ROYAL_SOURCES[1]:
+        if not photo:
+            raise gr.Error(f"{who}: upload a clear front photo (face visible, no cap or sunglasses).")
+        if not _session["tripo_key"]:
+            raise gr.Error("Add your Tripo API key in the Settings tab first.")
+        check = photo_check.check_photo(photo)        # never spend credits on a bad photo
+        if not check.ok:
+            raise gr.Error(f"{who}: photo check failed - no Tripo credits used. " + " ".join(check.messages))
+        return _save_crop(check) or photo
+    if not model_file:
+        raise gr.Error(f"{who}: upload the head model exported from Tripo (GLB, OBJ or STL).")
+    return model_file
+
+
+def run_pendant(source, model1, photo1, label1, pair, model2, photo2, label2, shape, size, crop, rim,
+                back, metal, font, line1, line2, date, pupils, turn, packaging, cust_name, cust_phone,
+                consent, progress=gr.Progress()):
+    customer = _customer(cust_name, cust_phone, consent)
+    s = pendant.PendantSettings(shape=shape, size=size, crop=crop, rim=rim, back=back, metal=metal,
+                                font=font, line1=line1 or "", line2=line2 or "", date=date or "",
+                                pupils=bool(pupils), turn=turn, packaging=packaging)
+    try:
+        pendant.check_text(s)
+    except ValueError as exc:
+        raise gr.Error(str(exc)) from exc
+    sources = [(_pendant_source(source, model1, photo1, "Pendant 1"), (label1 or "Pendant 1").strip())]
+    if pair:
+        sources.append((_pendant_source(source, model2, photo2, "Pendant 2"), (label2 or "Pendant 2").strip()))
+    progress(0.02, desc="Starting...")
+    try:
+        r = pendant.generate(sources, s, customer, api_key=_session["tripo_key"], progress=progress)
+    except Exception as exc:
+        raise gr.Error(str(exc)) from exc
+    info = "\n".join(f"- {line}" for line in r.log)
+    return ([str(p) for p in r.previews], str(r.glb) if r.glb else None, [str(f) for f in r.files],
+            r.quote_md, f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
 
 
 ORDER_COLS = ["order_id", "date", "product", "customer", "phone", "qty", "price", "status", "folder"]
@@ -379,6 +421,63 @@ def build_ui() -> gr.Blocks:
                         r_autoneck, r_neck, r_crown, r_tidy, r_font, r_name, r_msg1, r_msg2,
                         r_date, r_cname, r_cphone, r_consent],
                        [r_render, r_3d, r_files, r_quote, r_log])
+
+        with gr.Tab("💎 Face Pendant"):
+            gr.Markdown("A person's **3D head** becomes a raised portrait pendant for **casting** "
+                        "(jeweller's castable-resin print -> brass or silver). Names and date are "
+                        "engraved on the back. See `docs/face-pendant.md`.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    p_source = gr.Radio(ROYAL_SOURCES, value=ROYAL_SOURCES[0], label="Head from")
+                    with gr.Row():
+                        p_model1 = gr.File(label="Pendant 1: head model (GLB/OBJ/STL)",
+                                           file_types=[".glb", ".gltf", ".obj", ".stl"], type="filepath")
+                        p_photo1 = gr.Image(label="Or photo (Tripo API credits)", type="filepath", height=160)
+                    p_label1 = gr.Textbox(label="Pendant 1: whose face", value="Meera", max_lines=1)
+                    p_pair = gr.Checkbox(value=False, label="His & hers pair (second pendant with the "
+                                         "other person's face)")
+                    with gr.Row():
+                        p_model2 = gr.File(label="Pendant 2: head model", type="filepath",
+                                           file_types=[".glb", ".gltf", ".obj", ".stl"])
+                        p_photo2 = gr.Image(label="Or photo", type="filepath", height=160)
+                    p_label2 = gr.Textbox(label="Pendant 2: whose face", value="Ram", max_lines=1)
+                    with gr.Row():
+                        p_shape = gr.Radio(pendant.SHAPES, value="Round", label="Shape")
+                        p_size = gr.Radio(list(pendant.SIZES), value="Medium 24 mm", label="Size")
+                    with gr.Row():
+                        p_crop = gr.Radio(pendant.CROPS, value=pendant.CROPS[0], label="Portrait")
+                        p_rim = gr.Radio(pendant.RIMS, value="Plain", label="Rim")
+                    with gr.Row():
+                        p_metal = gr.Dropdown(list(pendant.METALS), value="Gold-plated brass", label="Metal")
+                        p_pack = gr.Dropdown(PENDANT_PACKAGING, value="velvet box", label="Packaging")
+                    with gr.Accordion("Back of the pendant", open=True):
+                        p_back = gr.Radio(pendant.BACKS, value=pendant.BACKS[0], label="Back")
+                        p_font = gr.Radio(list(engrave.FONTS), value=list(engrave.FONTS)[1], label="Font")
+                        p_line1 = gr.Textbox(label="Line 1", placeholder="Ram ♥ Meera", max_lines=1,
+                                             max_length=20, info="♥ is engraved as a small heart")
+                        p_line2 = gr.Textbox(label="Line 2", placeholder="Forever", max_lines=1, max_length=20)
+                        p_date = gr.Textbox(label="Date", placeholder="12.02.2015", max_lines=1, max_length=14)
+                    with gr.Accordion("Adjust (only if the automatic result looks wrong)", open=False):
+                        p_turn = gr.Radio(royal.TURNS, value="auto", label="Turn head (face direction)")
+                        p_pupils = gr.Checkbox(value=True, label="Pupil dots (tiny dimples - eyes look alive)")
+                    with gr.Accordion("Customer", open=True):
+                        p_cname = gr.Textbox(label="Customer name")
+                        p_cphone = gr.Textbox(label="Phone / WhatsApp")
+                        p_consent = gr.Checkbox(label="Customer agrees we use this photo/model only for "
+                                                "their order (and, for the API, that it is sent to Tripo)")
+                    p_go = gr.Button("Make pendant", variant="primary")
+                with gr.Column(scale=1):
+                    p_render = gr.Gallery(label="Front | back", height=440, columns=1)
+                    p_3d = gr.Model3D(label="3D preview", height=320)
+                    p_files = gr.File(label="Downloads (STL + jeweller notes for the casting shop)",
+                                      file_count="multiple")
+                    p_quote = gr.Markdown()
+                    p_log = gr.Markdown()
+            p_go.click(run_pendant,
+                       [p_source, p_model1, p_photo1, p_label1, p_pair, p_model2, p_photo2, p_label2, p_shape,
+                        p_size, p_crop, p_rim, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils,
+                        p_turn, p_pack, p_cname, p_cphone, p_consent],
+                       [p_render, p_3d, p_files, p_quote, p_log])
 
         with gr.Tab("📋 Orders"):
             o_table = gr.Dataframe(headers=ORDER_COLS, value=order_table, interactive=False,

@@ -35,5 +35,24 @@
     "head_model_cost": 45,
     "labour_minutes": 70,
     "target_margin_percent": 60
+  },
+
+  "pendant": {
+    "_note": "Jeweller costs: replace with your casting shop's quote. metal_rate_per_gram = that day's rate.",
+    "metal_rate_per_gram": { "Gold-plated brass": 1.0, "Antique gold brass": 1.0,
+                             "Rhodium-plated brass (silver look)": 1.0, "925 Silver": 235 },
+    "density_g_per_cm3": { "Gold-plated brass": 8.5, "Antique gold brass": 8.5,
+                           "Rhodium-plated brass (silver look)": 8.5, "925 Silver": 10.4 },
+    "metal_loss_factor": 1.15,
+    "cam_print_per_piece": 350,
+    "casting_per_gram": { "Gold-plated brass": 60, "Antique gold brass": 60,
+                          "Rhodium-plated brass (silver look)": 60, "925 Silver": 150 },
+    "min_casting_charge": 300,
+    "plating_per_piece": { "Gold-plated brass": 250, "Antique gold brass": 200,
+                           "Rhodium-plated brass (silver look)": 200, "925 Silver": 100 },
+    "packaging_per_piece": { "none": 0, "velvet pouch": 25, "velvet box": 120 },
+    "head_model_cost": 45,
+    "labour_minutes": 25,
+    "target_margin_percent": 50
   }
 }

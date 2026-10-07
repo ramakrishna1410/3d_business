@@ -8,8 +8,9 @@ Tabs
     2. Kids Drawing 3D     drawing photo -> plaque / figure STL + painting guide + quote
     3. Royal Chess         photo (Tripo API) or Tripo 3D head -> King/Queen/Bishop STL
     4. Face Pendant        Tripo 3D head -> cast pendant STL (jeweller) + front/back proof
-    5. Orders              every job saved in ./orders
-    6. Settings            AI engine status, API keys, prices
+    5. Face Rakhi          brother's 3D head -> rakhi (+ bhabhi lumba) STL, making notes, quote
+    6. Orders              every job saved in ./orders
+    7. Settings            AI engine status, API keys, prices
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from pathlib import Path
 import gradio as gr
 
 from memory_factory import (depth, drawing, engrave, imaging, medallion, orders, pendant, photo_check,
-                            royal)
+                            rakhi, royal)
 from memory_factory.config import PRICING_FILE, load_local_env, load_pricing
 from memory_factory.render import MATERIALS
 
@@ -34,6 +35,7 @@ DRAWING_PACKAGING = list(load_pricing()["drawing"]["packaging_per_piece"])
 ROYAL_FINISHES = list(load_pricing()["royal_chess"]["finish_per_piece"])
 ROYAL_PACKAGING = list(load_pricing()["royal_chess"]["packaging_per_piece"])
 PENDANT_PACKAGING = list(load_pricing()["pendant"]["packaging_per_piece"])
+RAKHI_PACKAGING = list(load_pricing()["rakhi"]["packaging_per_set"])
 
 load_local_env()
 _session = {"meshy_key": os.environ.get("MESHY_API_KEY", ""),
@@ -212,6 +214,48 @@ def run_pendant(source, model1, photo1, label1, pair, model2, photo2, label2, sh
     progress(0.02, desc="Starting...")
     try:
         r = pendant.generate(sources, s, customer, api_key=_session["tripo_key"], progress=progress)
+    except Exception as exc:
+        raise gr.Error(str(exc)) from exc
+    info = "\n".join(f"- {line}" for line in r.log)
+    return ([str(p) for p in r.previews], str(r.glb) if r.glb else None, [str(f) for f in r.files],
+            r.quote_md, f"**Order {r.order_id}** saved in `{r.folder}`\n\n{info}")
+
+
+def _rakhi_settings(design, set_type, method, name, font, stones, face_scale, face_shift, turn, packaging):
+    return rakhi.RakhiSettings(design=design, set_type=set_type, method=method, name=name or "", font=font,
+                               stones=stones, face_scale=face_scale / 100, face_shift=-float(face_shift),
+                               turn=turn, packaging=packaging)
+
+
+def preview_rakhi(model1, label1, model2, label2, design, set_type, method, name, font, stones,
+                  face_scale, face_shift, turn, packaging):
+    """Free and fast (no Tripo, no STL)."""
+    is_set = set_type == rakhi.SETS[1]
+    if not model1 or (is_set and not model2):
+        raise gr.Error("Preview needs the head model file(s). For photos, use Make rakhi.")
+    s = _rakhi_settings(design, set_type, method, name, font, stones, face_scale, face_shift, turn, packaging)
+    sources = [(model1, (label1 or "Bhaiya").strip())] + ([(model2, (label2 or "Bhabhi").strip())] if is_set else [])
+    try:
+        return [str(p) for p in rakhi.quick_preview(sources, s)]
+    except ValueError as exc:
+        raise gr.Error(str(exc)) from exc
+
+
+def run_rakhi(source, model1, photo1, label1, model2, photo2, label2, design, set_type, method, name, font,
+              stones, face_scale, face_shift, turn, packaging, cust_name, cust_phone, consent,
+              progress=gr.Progress()):
+    customer = _customer(cust_name, cust_phone, consent)
+    s = _rakhi_settings(design, set_type, method, name, font, stones, face_scale, face_shift, turn, packaging)
+    try:
+        rakhi.check_text(s)
+    except ValueError as exc:
+        raise gr.Error(str(exc)) from exc
+    sources = [(_pendant_source(source, model1, photo1, "Brother"), (label1 or "Bhaiya").strip())]
+    if set_type == rakhi.SETS[1]:
+        sources.append((_pendant_source(source, model2, photo2, "Bhabhi"), (label2 or "Bhabhi").strip()))
+    progress(0.02, desc="Starting...")
+    try:
+        r = rakhi.generate(sources, s, customer, api_key=_session["tripo_key"], progress=progress)
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
     info = "\n".join(f"- {line}" for line in r.log)
@@ -519,6 +563,65 @@ def build_ui() -> gr.Blocks:
                               p_detail, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils, p_scale,
                               p_shift, p_turn, p_pack],
                              [p_render, p_prev_msg])
+
+        with gr.Tab("🪢 Face Rakhi"):
+            gr.Markdown("The brother's **3D face** in a rakhi (kundan medallion or flower), with seats for "
+                        "glue-in stones, a **thread tunnel** on the back and a top loop - after the festival "
+                        "it becomes a keychain. Optional **lumba** with the bhabhi's face. "
+                        "See `docs/face-rakhi.md`.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    k_source = gr.Radio(ROYAL_SOURCES, value=ROYAL_SOURCES[0], label="Head from")
+                    with gr.Row():
+                        k_model1 = gr.File(label="Brother: head model (GLB/OBJ/STL)",
+                                           file_types=[".glb", ".gltf", ".obj", ".stl"], type="filepath")
+                        k_photo1 = gr.Image(label="Or photo (Tripo API credits)", type="filepath", height=160)
+                    k_label1 = gr.Textbox(label="Brother's name (for the files)", value="Ram", max_lines=1)
+                    k_set = gr.Radio(rakhi.SETS, value=rakhi.SETS[0], label="Order")
+                    with gr.Row():
+                        k_model2 = gr.File(label="Bhabhi (lumba): head model", type="filepath",
+                                           file_types=[".glb", ".gltf", ".obj", ".stl"])
+                        k_photo2 = gr.Image(label="Or photo", type="filepath", height=160)
+                    k_label2 = gr.Textbox(label="Bhabhi's name (for the files)", value="Meera", max_lines=1)
+                    with gr.Row():
+                        k_design = gr.Radio(rakhi.DESIGNS, value=rakhi.DESIGNS[0], label="Design")
+                        k_method = gr.Radio(list(rakhi.METHODS), value=list(rakhi.METHODS)[0], label="Made in",
+                                            info="Resin: sharpest face, painted | FDM: silk gold, no paint, "
+                                                 "20% bigger, cheaper")
+                    with gr.Row():
+                        k_name = gr.Textbox(label="Text under the face (kundan medallion)", value="BHAIYA",
+                                            max_lines=1, max_length=12)
+                        k_stones = gr.Dropdown(list(rakhi.STONES), value="Red & green", label="Stones")
+                    k_font = gr.Radio(list(engrave.FONTS), value=list(engrave.FONTS)[1], label="Font")
+                    with gr.Accordion("Face size & position", open=False):
+                        with gr.Row():
+                            k_scale = gr.Slider(80, 130, value=100, step=5, label="Face size (%)")
+                            k_shift = gr.Slider(-3, 3, value=0, step=0.25, label="Move face up (+) / down (-), mm")
+                        k_turn = gr.Radio(royal.TURNS, value="auto", label="Turn head (face direction)")
+                    k_pack = gr.Dropdown(RAKHI_PACKAGING, value="gift box", label="Packaging")
+                    with gr.Accordion("Customer", open=True):
+                        k_cname = gr.Textbox(label="Customer name")
+                        k_cphone = gr.Textbox(label="Phone / WhatsApp")
+                        k_consent = gr.Checkbox(label="Customer agrees we use this photo/model only for "
+                                                "their order (and, for the API, that it is sent to Tripo)")
+                    with gr.Row():
+                        k_prev_btn = gr.Button("Preview (free, ~5 s)")
+                        k_go = gr.Button("Make rakhi", variant="primary")
+                with gr.Column(scale=1):
+                    k_render = gr.Gallery(label="Preview", height=440, columns=1)
+                    k_3d = gr.Model3D(label="3D preview", height=320)
+                    k_files = gr.File(label="Downloads (STL + making notes)", file_count="multiple")
+                    k_quote = gr.Markdown()
+                    k_log = gr.Markdown()
+            k_prev_btn.click(preview_rakhi,
+                             [k_model1, k_label1, k_model2, k_label2, k_design, k_set, k_method, k_name, k_font,
+                              k_stones, k_scale, k_shift, k_turn, k_pack],
+                             k_render)
+            k_go.click(run_rakhi,
+                       [k_source, k_model1, k_photo1, k_label1, k_model2, k_photo2, k_label2, k_design, k_set,
+                        k_method, k_name, k_font, k_stones, k_scale, k_shift, k_turn, k_pack, k_cname, k_cphone,
+                        k_consent],
+                       [k_render, k_3d, k_files, k_quote, k_log])
 
         with gr.Tab("📋 Orders"):
             o_table = gr.Dataframe(headers=ORDER_COLS, value=order_table, interactive=False,

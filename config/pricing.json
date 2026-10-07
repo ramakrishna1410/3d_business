@@ -54,5 +54,20 @@
     "head_model_cost": 45,
     "labour_minutes": 25,
     "target_margin_percent": 50
+  },
+
+  "rakhi": {
+    "_note": "Per piece. FDM = silk gold PLA (print shop price per gram incl. machine time).",
+    "fdm_per_gram": 6,
+    "pla_density_g_per_cm3": 1.24,
+    "resin_fill_factor": 0.9,
+    "paint_per_piece": { "Resin (painted gold)": 25, "FDM (silk gold PLA)": 0 },
+    "stone_each": 1.5,
+    "thread_per_rakhi": 8,
+    "lumba_base": 15,
+    "head_model_cost": 45,
+    "packaging_per_set": { "none": 0, "card": 10, "gift box": 40 },
+    "labour_minutes_per_piece": { "Resin (painted gold)": 18, "FDM (silk gold PLA)": 10 },
+    "target_margin_percent": 50
   }
 }

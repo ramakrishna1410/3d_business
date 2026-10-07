@@ -557,3 +557,54 @@ def test_pendant_quick_preview_makes_images_without_stl(tmp_path):
                                               pendant.PendantSettings(line1="A ♥ B", turn="0°"))
     assert len(imgs) == 2 and all(p.exists() and p.suffix == ".png" for p in imgs)
     assert not list(tmp_path.glob("orders/**/*.stl"))
+
+
+# ---------------------------------------------------------------- face rakhi
+@pytest.mark.parametrize("design", ["Kundan medallion", "Flower"])
+@pytest.mark.parametrize("method", ["Resin (painted gold)", "FDM (silk gold PLA)"])
+def test_rakhi_builds_with_stone_seats_and_tunnel(tmp_path, design, method):
+    from memory_factory import rakhi
+
+    s = rakhi.RakhiSettings(design=design, method=method, turn="0°")
+    p = rakhi.build_rakhi(synthetic_bust(tmp_path), s, [])
+    assert p.kind == "rakhi" and p.tunnel and len(p.seats) in (12, 16)
+    assert p.bottom.min() <= -rakhi.BOSS + 0.05                  # back ridge for the tunnel
+    for row, col, rad in p.seats:                                  # cups sit below their bezel
+        assert p.top[row, col] < p.top[row, col + int((rad + 0.4) / rakhi.PX)]
+    base = 32.0 if design == "Kundan medallion" else 40.0         # FDM version is 20% bigger
+    assert p.info["size_mm"][0] == pytest.approx(base * rakhi.METHODS[method][0], abs=0.1)
+
+
+def test_rakhi_tunnel_is_hollow_and_stl_passes_shop_checks(tmp_path):
+    pytest.importorskip("manifold3d")
+    import manifold3d as mf
+    from memory_factory import rakhi, royal
+
+    s = rakhi.RakhiSettings(turn="0°", set_type=rakhi.SETS[1])
+    r = rakhi.generate([(synthetic_bust(tmp_path), "Ram"), (synthetic_bust(tmp_path), "Meera")], s, {"name": "T"})
+    stls = sorted(f for f in r.files if str(f).endswith(".stl"))
+    assert len(stls) == 2 and any("lumba" in f.name for f in stls) and len(r.previews) == 2
+    trimesh = pytest.importorskip("trimesh")
+    rk = trimesh.load([f for f in stls if "rakhi" in f.name][0])
+    assert rk.is_watertight
+    for tol in (1e-4, 1e-3, 1e-2):
+        assert _shop_check(rk, tol) == 0
+    m = royal._to_manifold(rk)
+    v = np.asarray(rk.vertices)
+    xc, yc = (rk.bounds[0][0] + rk.bounds[1][0]) / 2, np.median(v[v[:, 2] < -rakhi.BOSS + 0.1][:, 1])
+    probe = mf.Manifold.cube([0.4, 0.4, 0.2], True).translate([xc, yc, -rakhi.BOSS / 2])
+    assert (m ^ probe).volume() < 1e-4                            # the thread passes here
+    assert "making_notes" in " ".join(f.name for f in r.files)
+
+
+def test_rakhi_long_name_and_prices():
+    from memory_factory import costing, rakhi
+
+    with pytest.raises(ValueError, match="too long"):
+        rakhi.check_text(rakhi.RakhiSettings(name="RAMACHANDRAN KRISHNA"))
+    assert rakhi.check_text(rakhi.RakhiSettings(name="BHAIYA")) is not None
+    assert rakhi.check_text(rakhi.RakhiSettings(design="Flower", name="RAMACHANDRAN KRISHNA")) is None
+    single = costing.quote_rakhi([1500], [16], "Resin (painted gold)", ["rakhi"], "gift box")
+    pair = costing.quote_rakhi([1500, 600], [16, 16], "Resin (painted gold)", ["rakhi", "lumba"], "gift box")
+    fdm = costing.quote_rakhi([2600], [16], "FDM (silk gold PLA)", ["rakhi"], "card")
+    assert fdm.price_per_piece < single.price_per_piece < pair.price_per_piece <= 1000

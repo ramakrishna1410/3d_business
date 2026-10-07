@@ -131,3 +131,31 @@ def quote_pendant(volume_mm3: float, metal: str, quantity: int, packaging: str) 
         q.notes.append("Silver rate changes daily: update metal_rate_per_gram before quoting.")
     q.notes.append("GST: 3% on silver metal value + 5% on making charges if you bill as jewellery.")
     return q
+
+
+def quote_rakhi(volumes_mm3: list[float], stones: list[int], method: str, kinds: list[str],
+                packaging: str) -> Quote:
+    """One rakhi (or a rakhi + lumba set) = one 'piece' in the quote."""
+    p = load_pricing()
+    c = p["rakhi"]
+    q = Quote(quantity=1)
+    vol = sum(volumes_mm3)
+    if method.startswith("FDM"):
+        grams = vol / 1000 * c["pla_density_g_per_cm3"]
+        q.lines[f"Silk gold PLA print ({grams:.1f} g)"] = grams * c["fdm_per_gram"]
+    else:
+        q.lines["Resin print"] = resin_cost(vol * c["resin_fill_factor"], p) + \
+            len(volumes_mm3) * p["machine_cost_per_print_hour"]
+    q.lines["Paint"] = c["paint_per_piece"][method] * len(volumes_mm3)
+    q.lines[f"Stones ({sum(stones)})"] = sum(stones) * c["stone_each"]
+    q.lines["Rakhi thread / lumba base"] = sum(c["thread_per_rakhi"] if k == "rakhi" else c["lumba_base"]
+                                               for k in kinds)
+    q.lines["3D heads (Tripo credits)"] = c["head_model_cost"] * len(volumes_mm3)
+    q.lines["Packaging"] = c["packaging_per_set"].get(packaging, 0)
+    q.lines["Labour (finish, stones, assembly)"] = (c["labour_minutes_per_piece"][method] * len(volumes_mm3)
+                                                     / 60 * p["labour_per_hour"])
+    q.cost_per_piece = sum(q.lines.values())
+    q.price_per_piece = _price_from_margin(q.cost_per_piece, c["target_margin_percent"])
+    q.notes.append("Price is per rakhi" + (" + lumba set." if "lumba" in kinds else "."))
+    q.notes.append("Ship 10-12 days before Raksha Bandhan: stop taking orders in time.")
+    return q

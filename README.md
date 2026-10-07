@@ -33,6 +33,8 @@ tested through Instagram, wedding expos and school tie-ups before renting mall s
  3D head        crown + chin found → front depth → bas-relief →       STL for the jeweller (cast
  (Face Pendant) round / heart / oval frame, rim, cast-in loop →      brass / silver), front+back
                 names + date engraved on the back                     proof, jeweller notes, quote
+ 3D head        same face relief → kundan / flower rakhi + stone      STL (resin or FDM), preview
+ (Face Rakhi)   seats, back thread tunnel, top loop (+ bhabhi lumba)  on the thread, notes, quote
 ```
 
 Every job is saved as an order folder in `orders/` with the original image, the STL,
@@ -103,6 +105,7 @@ the pricing is calculated.
 | `memory_factory/royal.py` | Royal Chess: 3D head → King / Queen / Bishop piece (one watertight solid), smooth statue or classic royal design |
 | `memory_factory/engrave.py` | Royal Chess: engraved name on the stand and message/date under the base (3 fonts in `assets/fonts`) |
 | `memory_factory/pendant.py` | Face Pendant: 3D head → raised-portrait pendant for lost-wax casting, engraved back, his & hers pairs |
+| `memory_factory/rakhi.py` | Face Rakhi: brother's 3D face rakhi (+ bhabhi lumba), stone seats, thread tunnel, keychain loop |
 | `memory_factory/photo_check.py` | Checks a customer photo before spending Tripo credits; makes the Tripo-ready close-up |
 | `memory_factory/providers/tripo.py` | Tripo API v3: photo → 3D head (Ultra geometry, no texture) |
 | `tools/` | Command-line versions of both pipelines |
@@ -111,6 +114,7 @@ the pricing is calculated.
 | `docs/costing.md` | Cost model, pricing and break-even |
 | `docs/royal-chess.md` | Royal Chess: Tripo settings, the tab, printing and finishing |
 | `docs/face-pendant.md` | Face Pendant: the tab, sending files to a casting shop, metals and pricing |
+| `docs/face-rakhi.md` | Face Rakhi: designs, resin vs FDM, assembly and selling notes |
 
 ## Before you sell
 

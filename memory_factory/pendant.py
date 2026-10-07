@@ -25,12 +25,13 @@ from scipy import ndimage
 from . import costing, engrave, mesh as mesh_mod, orders, relief, render, royal
 from .config import load_pricing
 
-PX = 0.05                     # mm per heightmap pixel
+PX = 0.035                    # mm per heightmap pixel (fine enough for eyelids, bindi, beard)
 SHAPES = ["Round", "Heart", "Oval"]
 SIZES = {"Small 20 mm": 20.0, "Medium 24 mm": 24.0, "Large 28 mm": 28.0}
 CROPS = ["Head & shoulders", "Face only"]
 RIMS = ["Plain", "Beaded"]
 BACKS = ["Engraved", "Hollow (lighter, no text)"]
+DETAILS = ["Sharp", "Soft"]      # sharp: crisp features + outline step | soft: worn-coin look
 # name -> (density g/cm3, preview material)
 METALS = {
     "Gold-plated brass": (8.5, "gold"),
@@ -60,6 +61,7 @@ class PendantSettings:
     line2: str = ""                 # e.g. "Forever"
     date: str = ""
     pupils: bool = True
+    detail: str = "Sharp"
     turn: str = "auto"
     packaging: str = "velvet box"
 
@@ -124,7 +126,7 @@ def face_depth(head_path, turn: str, face_mm: float, below_mm: float, width_mm: 
     chin_frac = (z1 - zc) / max(np.ptp(v[:, 2]), 1e-6)
     k = face_mm / max(z1 - zc, 1e-6)
     v = (v - [lm["cx"], 0, z1]) * k
-    pts = trimesh.Trimesh(v, m.faces, process=False).sample(4_000_000)
+    pts = trimesh.Trimesh(v, m.faces, process=False).sample(7_000_000)
     rows = int(round((face_mm + below_mm) / PX))
     half = int(round(width_mm / 2 / PX))
     i = np.floor(-pts[:, 2] / PX).astype(int)
@@ -140,12 +142,26 @@ def face_depth(head_path, turn: str, face_mm: float, below_mm: float, width_mm: 
     return d, mask
 
 
-def bust_relief(d, mask, depth_mm: float, fade_mm: float):
-    r = relief.bas_relief(d, mask, compression=0.35, detail=0.6, edge_softness_px=8)
+STEP = 0.15         # crisp outline step around the head (sharp detail), mm
+
+
+def bust_relief(d, mask, depth_mm: float, fade_mm: float, sharp: bool = True):
+    """Depth map -> relief heights in mm. Sharp keeps more of the fine shape (eyelids, lips,
+    beard, hair strands), slightly exaggerated because casting and polishing soften it, and
+    gives the head a clean outline step like a coin portrait. Soft is the worn-coin look."""
+    mask = ndimage.gaussian_filter(mask.astype(float), 0.06 / PX) > 0.5     # smooth outline
     below = np.cumsum(mask[::-1], axis=0)[::-1]           # mask rows under each pixel
     fade = np.clip(below * PX / fade_mm, 0, 1)
     fade = fade * fade * (3 - 2 * fade)
-    return ndimage.gaussian_filter(r * fade, 1.0) * depth_mm
+    if not sharp:
+        r = relief.bas_relief(d, mask, compression=0.35, detail=0.6, edge_softness_px=0.4 / PX)
+        return ndimage.gaussian_filter(r * fade, 0.05 / PX) * depth_mm
+    r = relief.bas_relief(d, mask, compression=0.55, detail=1.2, edge_softness_px=0.15 / PX)
+    hp = d - ndimage.gaussian_filter(d, 0.3 / PX)         # fine shape, exaggerated a little
+    hp = np.clip(hp / (np.percentile(np.abs(hp[mask]), 99) + 1e-9), -1, 1) * mask
+    edge = np.clip(ndimage.distance_transform_edt(mask) * PX / 0.07, 0, 1)
+    h = (r + 0.12 * hp) * depth_mm + STEP * edge
+    return ndimage.gaussian_filter(h * fade, 0.014 / PX)
 
 
 def find_pupils(d, mask, face_mm: float):
@@ -342,7 +358,7 @@ def build(head_path, s: PendantSettings, log: list[str]) -> Pendant:
     if s.shape == "Heart":                       # the face sits in the wide upper part
         below *= 0.7
     d, fmask = face_depth(head_path, s.turn, face_mm, below, W, log)
-    rel = bust_relief(d, fmask, depth, fade_mm=max(1.5, 0.12 * Hi))
+    rel = bust_relief(d, fmask, depth, fade_mm=max(1.5, 0.12 * Hi), sharp=s.detail == DETAILS[0])
     if s.pupils:
         eyes = find_pupils(d, fmask, face_mm)
         if eyes:
@@ -411,11 +427,23 @@ def weights(volume_mm3: float) -> dict:
     return {name: round(volume_mm3 / 1000 * dens, 1) for name, (dens, _) in METALS.items()}
 
 
+def _antique(img: Image.Image, height: np.ndarray, mask: np.ndarray, low: float,
+             span: float = 0.35) -> Image.Image:
+    """Antique / oxidised look: recesses and the background darkened, raised parts polished."""
+    t = np.clip((height - low) / span, 0, 1)
+    t = ndimage.gaussian_filter(t, 0.03 / PX)
+    k = np.where(mask, 0.42 + 0.58 * t, 1.0)[..., None]
+    return Image.fromarray(np.clip(np.asarray(img, float) * k, 0, 255).astype(np.uint8))
+
+
 def preview(p: Pendant, s: PendantSettings) -> tuple[Image.Image, Image.Image]:
     mat = METALS[s.metal][1]
     front = render.render_material(p.top, PX, p.mask, mat)
     back_h = -p.bottom[:, ::-1]
     back = render.render_material(back_h, PX, p.mask[:, ::-1], mat)
+    if "Antique" in s.metal:
+        front = _antique(front, p.top, p.mask, FIELD + 0.02)
+        back = _antique(back, back_h, p.mask[:, ::-1], -ENGRAVE, 0.6 * ENGRAVE)   # dark letters
     return front, back
 
 

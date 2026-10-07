@@ -16,6 +16,8 @@ names and date engraved on the back.
    Large 28 mm. The oval is 22 × 30 mm at Medium.
 4. **Portrait**: *Head & shoulders* (classic medallion) or *Face only* (bigger face).
 5. **Rim**: Plain polished, or Beaded (traditional).
+   **Face detail**: *Sharp* (default: crisp eyes, lips, beard and hair, and a clean outline
+   step around the head like a coin portrait) or *Soft* (gentle, worn-coin look).
 6. **Back**:
    - *Engraved*: up to 3 lines (names, message, date) in the 3 shop fonts. Type `♥` for a
      small engraved heart. Text that will not fit stops before anything is built.
@@ -23,14 +25,19 @@ names and date engraved on the back.
 7. **Metal**: gold-plated brass, antique gold brass, rhodium-plated brass (silver look) or 925
    silver. This changes the preview colour, the weight and the quote.
 
-The result is a front and back preview for the customer, one STL plus jeweller notes per
-pendant, and a quote. It takes about 10–20 s per pendant.
+With the antique finish, the preview shows the dark background and polished face and
+letters, as the finished piece will look. The result is a front and back preview for the
+customer, one STL plus jeweller notes per
+pendant, and a quote. It takes about 20 s per pendant. STLs are about 10 MB.
 
 ## What the engine does automatically
 
 - Finds the face direction, the crown and the **chin**, so every face is sized the same way.
-- Turns the 3D face into a soft bas-relief (1.3 mm at 24 mm) that casts and polishes well. The
-  bust fades into the background instead of ending in a ledge.
+- Turns the 3D face into a bas-relief (1.3 mm at 24 mm, built on a 0.035 mm grid). With *Sharp*
+  detail, fine shapes (eyelids, bindi, lips, beard, hair strands) are kept and slightly
+  exaggerated, because casting, polishing and plating soften anything under about 0.1 mm. The
+  head gets a 0.15 mm outline step. The bust fades into the background instead of ending in a
+  ledge.
 - Adds **pupil dots** (tiny dimples) when both eyes are found confidently. Tripo eyes are
   blank, and the dots make small faces look alive in metal. This can be switched off.
 - Builds a **cast-in loop** (2.3 mm hole) at the top. The jeweller adds a jump ring for the chain.

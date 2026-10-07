@@ -169,10 +169,11 @@ def _pendant_source(source, model_file, photo, who):
 
 
 def run_pendant(source, model1, photo1, label1, pair, model2, photo2, label2, shape, size, crop, rim,
-                back, metal, font, line1, line2, date, pupils, turn, packaging, cust_name, cust_phone,
-                consent, progress=gr.Progress()):
+                detail, back, metal, font, line1, line2, date, pupils, turn, packaging, cust_name,
+                cust_phone, consent, progress=gr.Progress()):
     customer = _customer(cust_name, cust_phone, consent)
-    s = pendant.PendantSettings(shape=shape, size=size, crop=crop, rim=rim, back=back, metal=metal,
+    s = pendant.PendantSettings(shape=shape, size=size, crop=crop, rim=rim, detail=detail, back=back,
+                                metal=metal,
                                 font=font, line1=line1 or "", line2=line2 or "", date=date or "",
                                 pupils=bool(pupils), turn=turn, packaging=packaging)
     try:
@@ -447,6 +448,9 @@ def build_ui() -> gr.Blocks:
                     with gr.Row():
                         p_crop = gr.Radio(pendant.CROPS, value=pendant.CROPS[0], label="Portrait")
                         p_rim = gr.Radio(pendant.RIMS, value="Plain", label="Rim")
+                    p_detail = gr.Radio(pendant.DETAILS, value=pendant.DETAILS[0], label="Face detail",
+                                        info="Sharp: crisp eyes, lips, beard and outline (best likeness) | "
+                                             "Soft: gentle worn-coin look")
                     with gr.Row():
                         p_metal = gr.Dropdown(list(pendant.METALS), value="Gold-plated brass", label="Metal")
                         p_pack = gr.Dropdown(PENDANT_PACKAGING, value="velvet box", label="Packaging")
@@ -475,7 +479,7 @@ def build_ui() -> gr.Blocks:
                     p_log = gr.Markdown()
             p_go.click(run_pendant,
                        [p_source, p_model1, p_photo1, p_label1, p_pair, p_model2, p_photo2, p_label2, p_shape,
-                        p_size, p_crop, p_rim, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils,
+                        p_size, p_crop, p_rim, p_detail, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils,
                         p_turn, p_pack, p_cname, p_cphone, p_consent],
                        [p_render, p_3d, p_files, p_quote, p_log])
 

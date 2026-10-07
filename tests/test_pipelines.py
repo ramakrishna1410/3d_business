@@ -518,3 +518,19 @@ def test_pendant_pair_end_to_end_passes_shop_checks(tmp_path):
             assert _shop_check(t, tol) == 0
     assert set(r.weights) == {"Meera", "Ram"}
     assert "₹" in r.quote_md
+
+
+def test_pendant_sharp_detail_has_crisper_face_than_soft(tmp_path):
+    from memory_factory import pendant
+
+    head = synthetic_bust(tmp_path)
+    tops = {}
+    for detail in pendant.DETAILS:
+        s = pendant.PendantSettings(detail=detail, back=pendant.BACKS[1], turn="0°")
+        tops[detail] = pendant.build(head, s, []).top
+    def face_sharpness(t):                         # centre of the pendant only (no rim / loop)
+        h, w = t.shape
+        c = t[int(0.35 * h):int(0.75 * h), int(0.3 * w):int(0.7 * w)]
+        return np.percentile(np.hypot(*np.gradient(c)), 99)
+    grad = {k: face_sharpness(t) for k, t in tops.items()}
+    assert grad["Sharp"] > 1.3 * grad["Soft"]          # outline step + kept fine shape

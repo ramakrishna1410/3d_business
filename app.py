@@ -168,14 +168,40 @@ def _pendant_source(source, model_file, photo, who):
     return model_file
 
 
+def _pendant_settings(shape, size, crop, rim, detail, back, metal, font, line1, line2, date, pupils,
+                      face_scale, face_shift, turn, packaging):
+    return pendant.PendantSettings(shape=shape, size=size, crop=crop, rim=rim, detail=detail, back=back,
+                                   metal=metal, font=font, line1=line1 or "", line2=line2 or "",
+                                   date=date or "", pupils=bool(pupils), face_scale=face_scale / 100,
+                                   face_shift=-float(face_shift), turn=turn, packaging=packaging)
+
+
+def preview_pendant(model1, label1, pair, model2, label2, shape, size, crop, rim, detail, back, metal,
+                    font, line1, line2, date, pupils, face_scale, face_shift, turn, packaging):
+    """Free and fast (no Tripo, no STL): check the framing before making the pendant."""
+    if not model1 or (pair and not model2):
+        raise gr.Error("Preview needs the head model file(s). For photos, use Make pendant.")
+    s = _pendant_settings(shape, size, crop, rim, detail, back, metal, font, line1, line2, date, pupils,
+                          face_scale, face_shift, turn, packaging)
+    sources = [(model1, (label1 or "Pendant 1").strip())]
+    if pair:
+        sources.append((model2, (label2 or "Pendant 2").strip()))
+    try:
+        images, warnings, _ = pendant.quick_preview(sources, s)
+    except ValueError as exc:
+        raise gr.Error(str(exc)) from exc
+    for w in warnings:
+        gr.Warning(w)
+    msg = "\n".join(f"- ⚠️ {w}" for w in warnings) or "Framing looks good."
+    return [str(i) for i in images], msg
+
+
 def run_pendant(source, model1, photo1, label1, pair, model2, photo2, label2, shape, size, crop, rim,
-                detail, back, metal, font, line1, line2, date, pupils, turn, packaging, cust_name,
-                cust_phone, consent, progress=gr.Progress()):
+                detail, back, metal, font, line1, line2, date, pupils, face_scale, face_shift, turn,
+                packaging, cust_name, cust_phone, consent, progress=gr.Progress()):
     customer = _customer(cust_name, cust_phone, consent)
-    s = pendant.PendantSettings(shape=shape, size=size, crop=crop, rim=rim, detail=detail, back=back,
-                                metal=metal,
-                                font=font, line1=line1 or "", line2=line2 or "", date=date or "",
-                                pupils=bool(pupils), turn=turn, packaging=packaging)
+    s = _pendant_settings(shape, size, crop, rim, detail, back, metal, font, line1, line2, date, pupils,
+                          face_scale, face_shift, turn, packaging)
     try:
         pendant.check_text(s)
     except ValueError as exc:
@@ -461,6 +487,12 @@ def build_ui() -> gr.Blocks:
                                              max_length=20, info="♥ is engraved as a small heart")
                         p_line2 = gr.Textbox(label="Line 2", placeholder="Forever", max_lines=1, max_length=20)
                         p_date = gr.Textbox(label="Date", placeholder="12.02.2015", max_lines=1, max_length=14)
+                    with gr.Accordion("Face size & position", open=True):
+                        with gr.Row():
+                            p_scale = gr.Slider(80, 130, value=100, step=5, label="Face size (%)")
+                            p_shift = gr.Slider(-4, 4, value=0, step=0.25, label="Move face up (+) / down (-), mm")
+                        p_prev_btn = gr.Button("Preview (free, ~5 s per pendant - check the framing first)")
+                        p_prev_msg = gr.Markdown()
                     with gr.Accordion("Adjust (only if the automatic result looks wrong)", open=False):
                         p_turn = gr.Radio(royal.TURNS, value="auto", label="Turn head (face direction)")
                         p_pupils = gr.Checkbox(value=True, label="Pupil dots (tiny dimples - eyes look alive)")
@@ -480,8 +512,13 @@ def build_ui() -> gr.Blocks:
             p_go.click(run_pendant,
                        [p_source, p_model1, p_photo1, p_label1, p_pair, p_model2, p_photo2, p_label2, p_shape,
                         p_size, p_crop, p_rim, p_detail, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils,
-                        p_turn, p_pack, p_cname, p_cphone, p_consent],
+                        p_scale, p_shift, p_turn, p_pack, p_cname, p_cphone, p_consent],
                        [p_render, p_3d, p_files, p_quote, p_log])
+            p_prev_btn.click(preview_pendant,
+                             [p_model1, p_label1, p_pair, p_model2, p_label2, p_shape, p_size, p_crop, p_rim,
+                              p_detail, p_back, p_metal, p_font, p_line1, p_line2, p_date, p_pupils, p_scale,
+                              p_shift, p_turn, p_pack],
+                             [p_render, p_prev_msg])
 
         with gr.Tab("📋 Orders"):
             o_table = gr.Dataframe(headers=ORDER_COLS, value=order_table, interactive=False,

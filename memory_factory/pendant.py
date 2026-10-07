@@ -28,7 +28,7 @@ from .config import load_pricing
 PX = 0.035                    # mm per heightmap pixel (fine enough for eyelids, bindi, beard)
 SHAPES = ["Round", "Heart", "Oval"]
 SIZES = {"Small 20 mm": 20.0, "Medium 24 mm": 24.0, "Large 28 mm": 28.0}
-CROPS = ["Head & shoulders", "Face only"]
+CROPS = ["Head & shoulders", "Face only", "Close-up"]   # close-up: forehead to chin, biggest face
 RIMS = ["Plain", "Beaded"]
 BACKS = ["Engraved", "Hollow (lighter, no text)"]
 DETAILS = ["Sharp", "Soft"]      # sharp: crisp features + outline step | soft: worn-coin look
@@ -62,6 +62,8 @@ class PendantSettings:
     date: str = ""
     pupils: bool = True
     detail: str = "Sharp"
+    face_scale: float = 1.0          # 0.8 - 1.3: bigger / smaller face inside the frame
+    face_shift: float = 0.0          # mm, + moves the face down
     turn: str = "auto"
     packaging: str = "velvet box"
 
@@ -112,23 +114,48 @@ def chin_z(v: np.ndarray, cx: float) -> float:
     return float(zc[i])
 
 
+_HEADS: dict = {}
+
+
+def _head(head_path, turn: str, log: list[str]):
+    """Loaded + oriented head with its landmarks, cached so that previews and the final build
+    of the same file do not reload it."""
+    head_path = Path(head_path)
+    key = (str(head_path.resolve()), head_path.stat().st_mtime, turn)
+    if key not in _HEADS:
+        msgs: list[str] = []
+        m = royal.load_head(head_path)
+        v = royal.orient(m, head_path.suffix, turn, msgs)
+        lm = royal.landmarks(v, None)
+        zc = chin_z(v, lm["cx"])
+        if len(_HEADS) >= 4:
+            _HEADS.pop(next(iter(_HEADS)))
+        _HEADS[key] = (v, np.asarray(m.faces), lm["cx"], v[:, 2].max(), zc, msgs)
+    v, f, cx, z1, zc, msgs = _HEADS[key]
+    log += msgs
+    return v, f, cx, z1, zc
+
+
 def face_depth(head_path, turn: str, face_mm: float, below_mm: float, width_mm: float,
                log: list[str]):
     """Front depth map (rows from the crown down) with crown-to-chin = face_mm."""
     import trimesh
 
-    head_path = Path(head_path)
-    m = royal.load_head(head_path)
-    v = royal.orient(m, head_path.suffix, turn, log)
-    lm = royal.landmarks(v, None)
-    zc = chin_z(v, lm["cx"])
-    z1 = v[:, 2].max()
+    v, faces, cx, z1, zc = _head(head_path, turn, log)
     chin_frac = (z1 - zc) / max(np.ptp(v[:, 2]), 1e-6)
     k = face_mm / max(z1 - zc, 1e-6)
-    v = (v - [lm["cx"], 0, z1]) * k
-    pts = trimesh.Trimesh(v, m.faces, process=False).sample(7_000_000)
+    v = (v - [cx, 0, z1]) * k
     rows = int(round((face_mm + below_mm) / PX))
     half = int(round(width_mm / 2 / PX))
+    # only the front-facing triangles inside the crop: far fewer samples, same depth map
+    tri = v[faces]
+    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    keep = ((n[:, 1] <= 0.3 * np.linalg.norm(n, axis=1)) & (tri[:, :, 2].max(1) > -(face_mm + below_mm) - 0.5)
+            & (np.abs(tri[:, :, 0]).min(1) < width_mm / 2 + 0.5))
+    sub = trimesh.Trimesh(v, faces[keep], process=False)
+    area_xz = np.abs(n[keep, 1]).sum() / 2 + 1e-9
+    count = int(np.clip(10 * area_xz / PX ** 2, 500_000, 6_000_000))
+    pts = sub.sample(count)
     i = np.floor(-pts[:, 2] / PX).astype(int)
     j = np.floor(pts[:, 0] / PX).astype(int) + half
     ok = (i >= 0) & (i < rows) & (j >= 0) & (j < 2 * half)
@@ -337,6 +364,29 @@ def check_text(s: PendantSettings) -> None:
     fit_back_text(s, body & (dist > 1.1 * size / 24 + 0.3), size)
 
 
+def framing_warnings(face, dist, rim_w, face_mm, r0, s: PendantSettings, size: float) -> list[str]:
+    """Plain-language hints when the automatic framing needs a nudge."""
+    out = []
+    raised = face > 0.25
+    if not raised.any():
+        return ["The face is outside the frame - reset Face size and Move to 0."]
+    head = raised.copy()
+    head[r0 + int(face_mm / PX):] = False                   # crown to chin only
+    touching = head & (dist < rim_w + 0.4)
+    if s.crop != CROPS[2] and touching.sum() * PX ** 2 > 0.4:
+        side = "top" if np.nonzero(touching)[0].mean() < r0 + 0.3 * face_mm / PX else "sides"
+        out.append(f"Hair/face touches the rim at the {side}: lower Face size a little"
+                   + (" or Move it down." if side == "top" else "."))
+    if face_mm < 9.0:
+        out.append(f"The face is small ({face_mm:.1f} mm crown to chin): try Close-up, Face only, "
+                   "a bigger Face size or a larger pendant.")
+    chin_row = r0 + int(face_mm / PX)
+    rows = np.nonzero((dist > rim_w)[:, face.shape[1] // 2])[0]
+    if len(rows) and chin_row > rows[-1] - int(1.0 / PX):
+        out.append("The chin is at (or below) the bottom of the frame: Move the face up.")
+    return out
+
+
 # ---------------------------------------------------------------- build
 def build(head_path, s: PendantSettings, log: list[str]) -> Pendant:
     size = SIZES[s.size]
@@ -353,10 +403,15 @@ def build(head_path, s: PendantSettings, log: list[str]) -> Pendant:
     Hi = (bot_row - top_row) * PX
     if s.crop == CROPS[0]:
         face_mm, below, gap = 0.60 * Hi, 0.40 * Hi, 0.06 * Hi
-    else:
+    elif s.crop == CROPS[1]:
         face_mm, below, gap = 0.76 * Hi, 0.14 * Hi, 0.06 * Hi
+    else:                                        # close-up: the rim crops the top of the hair
+        face_mm, below, gap = 1.0 * Hi, 0.10 * Hi, -0.12 * Hi
     if s.shape == "Heart":                       # the face sits in the wide upper part
         below *= 0.7
+    sc = float(np.clip(s.face_scale, 0.6, 1.5))
+    face_mm, below = face_mm * sc, below * sc
+    gap += (1 - sc) * 0.25 * Hi + float(s.face_shift)       # resize around the eyes, then shift
     d, fmask = face_depth(head_path, s.turn, face_mm, below, W, log)
     rel = bust_relief(d, fmask, depth, fade_mm=max(1.5, 0.12 * Hi), sharp=s.detail == DETAILS[0])
     if s.pupils:
@@ -370,11 +425,16 @@ def build(head_path, s: PendantSettings, log: list[str]) -> Pendant:
             log.append("Pupils: tiny dimples added to the eyes (look more alive in metal)")
         else:
             log.append("Pupils: eyes not found confidently - left plain")
-    r0 = top_row + int(gap / PX)
+    r0 = top_row + int(round(gap / PX))
     c0 = cxi - rel.shape[1] // 2
     face = np.zeros(body.shape)
-    h_ = min(rel.shape[0], face.shape[0] - r0)
-    face[r0:r0 + h_, c0:c0 + rel.shape[1]] = rel[:h_]
+    ys, ye = max(r0, 0), min(r0 + rel.shape[0], face.shape[0])
+    xs, xe = max(c0, 0), min(c0 + rel.shape[1], face.shape[1])
+    if ye > ys and xe > xs:
+        face[ys:ye, xs:xe] = rel[ys - r0:ye - r0, xs - c0:xe - c0]
+    warnings = framing_warnings(face, dist, rim_w, face_mm, r0, s, size)
+    for w in warnings:
+        log.append("CHECK: " + w)
     face *= np.clip((dist - rim_w - 0.35) / 0.35, 0, 1)
     rim = rim_profile(dist, x, y, H, rim_w, s.rim == "Beaded")
     top = np.where(body, FIELD + np.maximum(face, rim), 0.0)
@@ -406,7 +466,8 @@ def build(head_path, s: PendantSettings, log: list[str]) -> Pendant:
     thick = np.where(mask, top - bottom, np.inf)
     info = dict(size_mm=[round(W, 1), round(H + 2 * LOOP_R - 0.9, 1)], relief_mm=round(float(depth), 2),
                 min_thickness_mm=round(float(thick.min()), 2), loop_hole_mm=round(2 * LOOP_HOLE, 1),
-                face_mm=round(face_mm, 1), back_text=bool(text is not None and text.any()))
+                face_mm=round(face_mm, 1), back_text=bool(text is not None and text.any()),
+                warnings=warnings)
     return Pendant(top, bottom, mask, info)
 
 
@@ -475,6 +536,27 @@ def jeweller_notes(s: PendantSettings, p: Pendant, wts: dict, label: str) -> str
         lines += ["", "925 silver: stamp '925' on the back; optional oxidised background."]
     lines += ["", "Polish lightly on the face: the nose and cheeks are the high points."]
     return "\n".join(lines) + "\n"
+
+
+def quick_preview(sources: list[tuple[str, str]], s: PendantSettings) -> tuple[list[Path], list[str], list[str]]:
+    """Front + back previews only (no STL) in a few seconds, to adjust the framing first.
+    Returns image paths, framing warnings and the log."""
+    import tempfile
+
+    check_text(s)
+    out_dir = Path(tempfile.mkdtemp(prefix="pendant_preview_"))
+    images, warnings, log = [], [], []
+    for n, (src, label) in enumerate(sources):
+        p = build(src, s, log)
+        front, back = preview(p, s)
+        both = Image.new("RGB", (front.width * 2 + 40, front.height), (245, 242, 236))
+        both.paste(front, (0, 0))
+        both.paste(back, (front.width + 40, 0))
+        path = out_dir / f"preview_{n + 1}.png"
+        both.resize((both.width // 2, both.height // 2), Image.LANCZOS).save(path)
+        images.append(path)
+        warnings += [f"{label}: {w}" for w in p.info["warnings"]]
+    return images, warnings, log
 
 
 def generate(sources: list[tuple[str, str]], s: PendantSettings, customer: dict | None = None,

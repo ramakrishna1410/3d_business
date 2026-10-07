@@ -534,3 +534,26 @@ def test_pendant_sharp_detail_has_crisper_face_than_soft(tmp_path):
         return np.percentile(np.hypot(*np.gradient(c)), 99)
     grad = {k: face_sharpness(t) for k, t in tops.items()}
     assert grad["Sharp"] > 1.3 * grad["Soft"]          # outline step + kept fine shape
+
+
+def test_pendant_framing_controls_and_warnings(tmp_path):
+    from memory_factory import pendant
+
+    head = synthetic_bust(tmp_path)
+    base = dict(back=pendant.BACKS[1], turn="0°")
+    normal = pendant.build(head, pendant.PendantSettings(**base), [])
+    close = pendant.build(head, pendant.PendantSettings(crop="Close-up", **base), [])
+    big = pendant.build(head, pendant.PendantSettings(face_scale=1.5, face_shift=-3, **base), [])
+    assert close.info["face_mm"] > 1.3 * normal.info["face_mm"]
+    assert not normal.info["warnings"]
+    assert any("touches the rim" in w for w in big.info["warnings"])
+
+
+def test_pendant_quick_preview_makes_images_without_stl(tmp_path):
+    from memory_factory import pendant
+
+    head = synthetic_bust(tmp_path)
+    imgs, warnings, _ = pendant.quick_preview([(head, "A"), (head, "B")],
+                                              pendant.PendantSettings(line1="A ♥ B", turn="0°"))
+    assert len(imgs) == 2 and all(p.exists() and p.suffix == ".png" for p in imgs)
+    assert not list(tmp_path.glob("orders/**/*.stl"))

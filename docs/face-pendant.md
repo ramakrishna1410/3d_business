@@ -14,7 +14,13 @@ names and date engraved on the back.
    with whose face it carries.
 3. **Shape**: Round, Heart or Oval. **Size**: Small 20 mm, Medium 24 mm (default) or
    Large 28 mm. The oval is 22 × 30 mm at Medium.
-4. **Portrait**: *Head & shoulders* (classic medallion) or *Face only* (bigger face).
+4. **Portrait**: *Head & shoulders* (classic medallion), *Face only* (bigger face) or *Close-up*
+   (forehead to chin, the rim crops the top of the hair: biggest face, best likeness on small
+   pendants).
+   **Face size & position**: *Face size* (80–130%) and *Move face up/down* (±4 mm) fine-tune
+   the automatic framing. Press **Preview** first. It is free (no Tripo, no STL) and takes about
+   5 s per pendant. It also warns when hair touches the rim, when the face is small (under
+   9 mm crown to chin) or when the chin reaches the bottom of the frame.
 5. **Rim**: Plain polished, or Beaded (traditional).
    **Face detail**: *Sharp* (default: crisp eyes, lips, beard and hair, and a clean outline
    step around the head like a coin portrait) or *Soft* (gentle, worn-coin look).
